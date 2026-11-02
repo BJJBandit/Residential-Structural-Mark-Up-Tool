@@ -162,6 +162,19 @@ dialog h3 { margin: 0 0 0.6rem; }
 .m-ghost { stroke: #ff9f1c; stroke-width: 2; stroke-dasharray: 5 4; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
 .m-snap { fill: none; stroke: #ff2d7a; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 
+.step { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.45rem; padding: 0 0.6rem; }
+.step[open] { padding-bottom: 0.6rem; }
+.step-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0; font-weight: 600; cursor: pointer; }
+.step-tick { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.4rem; height: 1.4rem; font-size: 0.75rem; border: 1px solid var(--border); border-radius: 50%; color: var(--text-muted); }
+.step-tick.done { background: var(--pass); border-color: var(--pass); color: #fff; }
+.check, .radio { display: flex; gap: 0.4rem; align-items: flex-start; margin: 0.3rem 0; font-size: 0.85rem; }
+.radio.off { opacity: 0.6; }
+tr.pick { cursor: pointer; }
+tr.pick:hover { background: var(--bg); }
+.m-wall { stroke: #1f7a4d; stroke-width: 6; stroke-opacity: 0.55; fill: none; vector-effect: non-scaling-stroke; }
+.m-wall.brace { stroke-opacity: 1; stroke-dasharray: 12 4; }
+.m-wall.bad { stroke: #c0392b; }
+.m-text.wall-t { fill: #1f7a4d; }
 .report { display: none; }
 
 @media (max-width: 900px) {

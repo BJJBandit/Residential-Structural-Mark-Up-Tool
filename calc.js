@@ -263,7 +263,8 @@ function analyseBeam(el, L, loadsVec, pointLoads, project) {
     const topComp = Mpeak >= 0, Lr = Math.min(topComp ? Ltop : Lbot, L * 1000);
     let phiM, phiV, detail;
     if (m.kind === "steel") {
-      const kl = topComp ? 1.4 : 1.0;
+      // AS 4100 Table 5.6.3(B): top flange load, FU segment 2.0, otherwise 1.4 when the top flange is compressed
+      const kl = cant && Lr >= L * 1000 - 1 ? 2.0 : topComp ? 1.4 : 1.0;
       const am = (!cant && !hasPts && Lr >= L * 1000 - 1) ? 1.13 : 1.0;
       const r = steelMb(m, Math.max(Lr, 1) * kl, am);
       phiM = r.Mb; phiV = vu;
@@ -379,6 +380,12 @@ function buildConnections(project) {
         || null;
       const col = els.find(e => e.type === "column" && e.page === b.page && dist(e, pt) <= tol) || sup;
       if (col) { add(onSupport, col.id, { from: b.id, end: i + 1 }); return; }
+      const wall = els.find(o => {
+        if (o.type !== "wall" || o.page !== b.page) return false;
+        const a = ends(o), p = projectOn(pt, a[0], a[1]);
+        return p.d <= tol && p.t >= -0.02 && p.t <= 1.02;
+      });
+      if (wall) { add(onSupport, wall.id, { from: b.id, end: i + 1 }); return; }
       const host = els.find(o => {
         if (o.type !== "beam" || o.id === b.id || o.page !== b.page) return false;
         const a = ends(o), p = projectOn(pt, a[0], a[1]);
@@ -454,6 +461,18 @@ function solveAll(project) {
         res = analyseBeam(el, L, surfaceLoad(el, project), pts, project);
         res.points = pts;
       }
+    } else if (el.type === "wall") {
+      const L = wallLength(el, project), N = zeroVec();
+      let conc = zeroVec();
+      (conn.onSupport[id] || []).forEach(c => {
+        const r = solve(c.from, id);
+        if (!r || r.error || r.type !== "beam") return;
+        const v = c.end === 2 ? r.r2 : r.r1;
+        addVec(N, v); if (factoredReaction(v) > factoredReaction(conc)) conc = { ...v };
+      });
+      addVec(N, surfaceLoad(el, project), L);
+      (el.points || []).forEach(p => addVec(N, srcVec(p, id)));
+      res = L > 0 ? checkWall(el, N, L, conc, project) : { error: "Zero length" };
     } else if (el.type === "column" || el.type === "footing") {
       const N = zeroVec(), feeds = [];
       (conn.onSupport[id] || []).forEach(c => {
@@ -470,7 +489,7 @@ function solveAll(project) {
     out[id] = res;
     return res;
   }
-  project.elements.forEach(e => { if (e.type === "beam" || e.type === "column" || e.type === "footing") solve(e.id); });
+  project.elements.forEach(e => { if (["beam", "column", "footing", "wall"].includes(e.type)) solve(e.id); });
   return { results: out, warnings, conn };
 }
 

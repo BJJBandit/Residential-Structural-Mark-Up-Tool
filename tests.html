@@ -11,6 +11,7 @@
 <table id="t"><tr><th></th><th>Check</th><th>Got</th><th>Expected</th></tr></table>
 <script src="data.js"></script>
 <script src="calc.js"></script>
+<script src="walls.js"></script>
 <script>
 const near = (name, got, exp, tol = 0.02) => row(name, got, exp, Math.abs(got - exp) <= Math.abs(exp) * tol);
 let fails = 0, total = 0;
@@ -82,6 +83,47 @@ near("Wind pressure N3 x 1.1", windPressure("N3", 1.1), 1.65, 0.001);
 // Auto-size returns a passing section no heavier than a known pass
 const pick = autoSize(proj.elements[0], proj);
 row("Auto-size picks a section", pick && pick.sec, "a UB", !!(pick && pick.sec));
+
+// AS 4055 Table 4.1 ultimate net uplift (Wu - 0.9G) on a sheet roof, G = 0.4 kPa
+const up = cls => designWind({ windClass: cls }).roofUp - 0.9 * 0.4;
+near("N2 sheet uplift, Table 4.1", up("N2"), 0.59, 0.03); near("N3 sheet uplift, Table 4.1", up("N3"), 1.13, 0.02);
+near("C1 sheet uplift, Table 4.1", up("C1"), 1.80, 0.01); near("C2 sheet uplift, Table 4.1", up("C2"), 2.85, 0.01);
+
+// AS 2870
+row("ys 30 mm is Class M", siteClassFromYs(30), "M", siteClassFromYs(30) === "M");
+row("ys 80 mm is Class E", siteClassFromYs(80), "E", siteClassFromYs(80) === "E");
+const fo = (c, b) => footingOptions(c, b);
+row("Class H2 has no strip design", fo("H2", 100).find(o => o.id === "strip").ok, false, fo("H2", 100).find(o => o.id === "strip").ok === false);
+row("Strip needs 100 kPa", fo("M", 80).find(o => o.id === "strip").ok, false, fo("M", 80).find(o => o.id === "strip").ok === false);
+row("Class E is engineered only", fo("E", 100)[0].id, "engineered", fo("E", 100).length === 1 && fo("E", 100)[0].id === "engineered");
+
+// AS 3700
+near("fm for f'uc 20, km 1.4", masonryFm(20, 1.4), 6.3, 0.01);
+near("k at Srs 20, slab, Table 7.1", masonryK(20, true), 0.55, 0.001);
+near("k at Srs 20, other, Table 7.1", masonryK(20, false), 0.42, 0.03);
+
+// Walls: B1 lands on W1, and W1 is a bracing wall
+const wp = { ...proj, windClass: "N2", bearing: 100, windPressure: designWind({ windClass: "N2" }).roofUp, pages: [{ mmPerPt: 10, bracing: { elevH: 2, lenX: 4 } }], elements: [
+  { id: "w1", tag: "W1", type: "wall", page: 0, x1: 0, y1: 0, x2: 0, y2: 800, wallType: "timber", h: 2.4, grade: "MGP10", size: "90x35", spacing: 450, nog: 1350, concStuds: 3, deflOver: 200, loads: [{ surface: "roof-sheet", width: 2 }], brace: true, braceType: "h", braceLen: 2, onGround: true, stripB: 300, stripD: 300 },
+  { id: "b9", tag: "B9", type: "beam", page: 0, x1: 0, y1: 400, x2: 400, y2: 400, mat: "steel", sec: "200UB25.4", use: "floor", support: "ss", loads: [{ surface: "floor-timber", width: 1 }] }
+] };
+const ws = solveAll(wp), w1 = ws.results.w1;
+near("Wall takes beam reaction + load width + frame", w1.N.G, ws.results.b9.r1.G + 0.4 * 2 * 8 + 0.4 * 2.4 * 8, 0.001);
+near("Stud wind M* at N2", 0.96 * 0.9 * 0.45 * 2.4 * 2.4 / 8, 0.28, 0.01);
+const brs = bracingSummary(wp, ws.results)[0];
+near("Racking force, 0.96qu x 2 m x 4 m elevation", brs.y.F, 0.96 * 0.96 * 2 * 4, 0.001);
+near("Bracing capacity 5.2 kN/m x 2 m", brs.y.cap, 10.4, 0.001);
+const lpr = loadPathRows(wp, ws);
+row("Beam end 2 reported unsupported", lpr.find(r => r.from === "B9 end 2").to, null, lpr.find(r => r.from === "B9 end 2").to === null);
+row("Beam end 1 carried by wall", lpr.find(r => r.from === "B9 end 1").to, "W1", lpr.find(r => r.from === "B9 end 1").to === "W1");
+
+// AS 1720.1 hand check: 90x35 MGP10, nogs at 1350: S4 = 38.6, rho 0.96, k12 = 200/37.0^2 = 0.146; phi 0.9, k1 0.57, fc 18
+const studW = solveAll({ ...wp, elements: [{ ...wp.elements[0], loads: [], onGround: false }] }).results.w1;
+near("Stud 1.35G capacity, hand calc", studW.rows[0].cap, 0.9 * 0.57 * (200 / (0.96 * 1350 / 35) ** 2) * 18 * 3150 * 1e-3, 0.001);
+
+// AS 4100 Table 5.6.3(B): unrestrained cantilever uses kl = 2.0
+const can = solveAll({ ...proj, elements: [{ id: "c", tag: "C", type: "beam", page: 0, x1: 0, y1: 0, x2: 300, y2: 0, mat: "steel", sec: "200UB25.4", use: "floor", support: "cant", loads: [{ surface: "floor-timber", width: 1 }] }] }).results.c;
+row("Cantilever Le = 2 x 3 m", can.rows[0].detail.slice(0, 10), "Le = 6.00", can.rows[0].detail.startsWith("Le = 6.00"));
 
 document.getElementById("sum").innerHTML = `<b class="${fails ? "f" : "p"}">${total - fails} / ${total} passed</b>`;
 document.title = fails ? "FAIL " + fails : "PASS " + total;

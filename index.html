@@ -48,9 +48,10 @@
         <h2>Start with a plan</h2>
         <p>Open an architectural PDF or image, or use a blank sheet. Your plan stays in this browser and is never uploaded.</p>
         <ol>
+          <li>Work through the Review tab: geotechnical report and wind, then roof, walls, load paths, footings and bracing.</li>
           <li>Set the scale, or calibrate against a known dimension.</li>
-          <li>Draw beams, then place columns and footings at their ends. Loads transfer automatically where members meet.</li>
-          <li>Assign load widths and pick sections in the panel, then export the marked-up PDF.</li>
+          <li>Draw walls, beams, columns and footings. Loads transfer automatically where members meet.</li>
+          <li>Size members in the panel, then export the marked-up PDF.</li>
         </ol>
       </div>
       <div class="sheet" id="sheet" hidden>
@@ -62,8 +63,9 @@
 
   <aside class="side">
     <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="member" role="tab">Member</button>
-      <button class="tab" data-tab="project" role="tab">Project</button>
+      <button class="tab active" data-tab="workflow" role="tab">Review</button>
+      <button class="tab" data-tab="member" role="tab">Member</button>
+      <button class="tab" data-tab="project" role="tab">Loads</button>
       <button class="tab" data-tab="library" role="tab">Library</button>
     </div>
     <div class="tab-body" id="tabBody"></div>
@@ -98,6 +100,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="data.js"></script>
 <script src="calc.js"></script>
+<script src="walls.js"></script>
+<script src="workflow.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

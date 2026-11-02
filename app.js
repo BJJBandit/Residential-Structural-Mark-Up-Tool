@@ -12,6 +12,7 @@ const PT_TO_MM = 25.4 / 72;
 
 const TOOLS = [
   { id: "select", label: "Select", key: "V", icon: '<path d="M5 3l12 8-5 1 3 6-2 1-3-6-4 3z" fill="currentColor"/>', hint: "Click a member to edit it. Drag it or its end handles to move. Del removes. Scroll to zoom; hold Space or the middle button to pan." },
+  { id: "wall", label: "Wall", key: "W", icon: '<path d="M2 10h16" stroke="currentColor" stroke-width="6" opacity="0.6"/>', hint: "Click the start, then the end of a wall. Hold Shift for square lines. Beam ends that land on it pass their load to it." },
   { id: "beam", label: "Beam", key: "B", icon: '<path d="M2 10h16" stroke="currentColor" stroke-width="3"/>', hint: "Click the start, then the end. Hold Shift for square lines. Ends snap to other members; loads transfer where a member lands on another." },
   { id: "column", label: "Column", key: "C", icon: '<rect x="5" y="5" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"/>', hint: "Click to place a column. Place it on a beam end to collect the reaction." },
   { id: "footing", label: "Footing", key: "F", icon: '<rect x="3" y="3" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/>', hint: "Click to place a pad footing. Place it on a column or beam end to collect the load." },
@@ -20,18 +21,19 @@ const TOOLS = [
 ];
 
 const defaultProject = () => ({
-  ref: "", address: "", engineer: "", windClass: "N2", cnet: 1.1, siteClass: "M", bearing: 100, defaultLtop: 1800,
+  ref: "", address: "", engineer: "", windClass: "N2", cnet: "", vhu: "", rackP: "", siteClass: "M", bearing: 100, defaultLtop: 1800,
+  geo: {}, roofType: "", roofForm: "", roofFrame: "Trusses", pitch: "", construction: "", storeys: 1, wallH: 2.4, footing: {}, braceSpacing: 9, openStep: "site",
   surfaces: JSON.parse(JSON.stringify(DEFAULT_SURFACES)),
   uses: JSON.parse(JSON.stringify(DEFAULT_USES)),
   timberGrades: JSON.parse(JSON.stringify(TIMBER_GRADES)),
-  pages: [], elements: [], nextId: 1, counters: { beam: 0, column: 0, footing: 0 },
+  pages: [], elements: [], nextId: 1, counters: { beam: 0, column: 0, footing: 0, wall: 0 },
   lastBeam: null
 });
 
 let project = defaultProject();
 let docInfo = null; // { kind: 'pdf'|'image'|'blank', name, bytes, mime, pdf, dims: [{w,h}] }
 let view = { page: 0, zoom: 1 };
-let tool = "select", selected = null, activeTab = "member";
+let tool = "select", selected = null, activeTab = "workflow";
 let draft = null, drag = null, snapPt = null, pickWidth = null;
 let solved = { results: {}, warnings: [] };
 const undoStack = [], redoStack = [];
@@ -44,7 +46,7 @@ const mmPt = () => (pageInfo() ? pageInfo().mmPerPt : 1);
 const elById = id => project.elements.find(e => e.id === id);
 const fontSize = () => { const d = docInfo && docInfo.dims[view.page]; return d ? Math.max(d.w, d.h) / 105 : 10; };
 
-function refreshProjectDerived() { project.windPressure = windPressure(project.windClass, Number(project.cnet) || 0); }
+function refreshProjectDerived() { project.windPressure = designWind(project).roofUp; }
 
 function pushUndo() {
   undoStack.push(snapshot());
@@ -188,7 +190,16 @@ function drawOverlay() {
     const bad = r && (r.error || r.ok === false) ? " bad" : "";
     const sel = el.id === selected ? " m-sel" : "";
     const g = svgEl("g", { "data-id": el.id }, svg);
-    if (el.type === "beam") {
+    if (el.type === "wall") {
+      svgEl("line", { x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2, class: `m-wall${el.brace ? " brace" : ""}${bad}${sel}` }, g);
+      svgEl("line", { x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2, class: "m-hit" }, g);
+      const { x, y, ang } = labelPos(el, fs);
+      svgEl("text", { x, y, "font-size": fs, class: `m-text wall-t${bad}`, "text-anchor": "middle", transform: `rotate(${ang} ${x} ${y})` }, g, wallLabel(el));
+      if (el.id === selected) {
+        svgEl("circle", { cx: el.x1, cy: el.y1, r: 6 / view.zoom, class: "m-handle", "data-end": 1 }, g);
+        svgEl("circle", { cx: el.x2, cy: el.y2, r: 6 / view.zoom, class: "m-handle", "data-end": 2 }, g);
+      }
+    } else if (el.type === "beam") {
       svgEl("line", { x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2, class: `m-line${bad}${el.support === "cant" ? " cant" : ""}${sel}` }, g);
       svgEl("line", { x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2, class: "m-hit" }, g);
       const { x, y, ang } = labelPos(el, fs);
@@ -222,6 +233,11 @@ function drawOverlay() {
   if (snapPt) svgEl("circle", { cx: snapPt.x, cy: snapPt.y, r: 7 / view.zoom, class: "m-snap" }, svg);
 }
 
+function wallLabel(el) {
+  const r = solved.results[el.id];
+  return `${el.tag}${el.brace ? " BR" : ""} ${r && !r.error ? r.name : "?"}`;
+}
+
 function symbolSize(el, fallbackMm) {
   const r = solved.results[el.id];
   const d = r && r.m ? Math.max(r.m.d || 0, r.m.b || 0) : 0;
@@ -251,11 +267,11 @@ function snap(pt, excludeId) {
   let best = null, bestD = radius;
   const consider = (x, y, weight = 1) => { const d = Math.hypot(pt.x - x, pt.y - y) * weight; if (d < bestD) { bestD = d; best = { x, y }; } };
   project.elements.filter(e => e.page === view.page && e.id !== excludeId).forEach(e => {
-    if (e.type === "beam") { consider(e.x1, e.y1, 0.6); consider(e.x2, e.y2, 0.6); }
+    if (e.type === "beam" || e.type === "wall") { consider(e.x1, e.y1, 0.6); consider(e.x2, e.y2, 0.6); }
     if (e.type === "column" || e.type === "footing") consider(e.x, e.y, 0.5);
   });
   if (!best) {
-    project.elements.filter(e => e.type === "beam" && e.page === view.page && e.id !== excludeId).forEach(e => {
+    project.elements.filter(e => (e.type === "beam" || e.type === "wall") && e.page === view.page && e.id !== excludeId).forEach(e => {
       const p = projectOn(pt, { x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 });
       if (p.t > 0 && p.t < 1) consider(e.x1 + p.t * (e.x2 - e.x1), e.y1 + p.t * (e.y2 - e.y1));
     });
@@ -272,13 +288,18 @@ function newId() { return "e" + (project.nextId++); }
 function addElement(fields) {
   pushUndo();
   const el = { id: newId(), page: view.page, ...fields };
-  const prefix = { beam: "B", column: "C", footing: "F" }[el.type];
-  if (prefix) { project.counters[el.type] += 1; el.tag = prefix + project.counters[el.type]; }
+  const prefix = { beam: "B", column: "C", footing: "F", wall: "W" }[el.type];
+  if (prefix) { project.counters[el.type] = (project.counters[el.type] || 0) + 1; el.tag = prefix + project.counters[el.type]; }
   project.elements.push(el);
   selected = el.id;
   if (activeTab !== "member") setTab("member");
   update();
   return el;
+}
+
+function wallDefault() {
+  const eq = (CONSTRUCTION[project.construction] || {}).eq;
+  return eq === "MV" || eq === "AMV" ? "veneer" : eq === "AFM" || eq === "FM" ? "masonry" : "timber";
 }
 
 function beamDefaults() {
@@ -316,13 +337,14 @@ function onPointerDown(evt) {
 
   const s = snap(raw);
   let pt = s || raw;
-  if (tool === "beam" || tool === "measure" || tool === "calibrate") {
+  if (tool === "beam" || tool === "wall" || tool === "measure" || tool === "calibrate") {
     if (!draft) { draft = { x1: pt.x, y1: pt.y }; return; }
     if (evt.shiftKey && !s) pt = ortho(raw, { x: draft.x1, y: draft.y1 });
     const seg = { x1: draft.x1, y1: draft.y1, x2: pt.x, y2: pt.y };
     draft = null; snapPt = null;
     if (Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1) < 2) { drawOverlay(); return; }
     if (tool === "beam") addElement({ type: "beam", ...beamDefaults(), ...seg });
+    else if (tool === "wall") addElement({ type: "wall", wallType: wallDefault(), h: Number(project.wallH) || 2.4, grade: "MGP10", size: "90x35", plies: 1, spacing: 450, nog: 1350, concStuds: 3, deflOver: 200, t: 110, fuc: 20, loads: [], points: [], brace: false, braceType: "h", onGround: false, stripB: 300, stripD: 300, ...seg });
     else if (tool === "measure") addElement({ type: "measure", ...seg });
     else finishCalibrate(seg);
     return;
@@ -447,7 +469,8 @@ function renderScaleBar() {
 function renderSide() {
   const body = $("tabBody");
   const focus = document.activeElement && body.contains(document.activeElement) ? document.activeElement.getAttribute("data-k") : null;
-  if (activeTab === "project") body.innerHTML = projectPanel();
+  if (activeTab === "workflow") body.innerHTML = workflowPanel();
+  else if (activeTab === "project") body.innerHTML = projectPanel();
   else if (activeTab === "library") body.innerHTML = libraryPanel();
   else body.innerHTML = memberPanel();
   if (focus) { const f = body.querySelector(`[data-k="${focus}"]`); if (f) f.focus(); }
@@ -459,6 +482,7 @@ function memberPanel() {
   if (!el) {
     return warn + `<p class="small-text">Select a member on the plan or in the schedule, or draw one with the tools on the left.</p>`;
   }
+  if (el.type === "wall") return warn + wallPanel(el);
   if (el.type === "beam") return warn + beamPanel(el);
   if (el.type === "column") return warn + columnPanel(el);
   if (el.type === "footing") return warn + footingPanel(el);
@@ -616,21 +640,9 @@ function footingPanel(el) {
 }
 
 function projectPanel() {
-  const q = windPressure(project.windClass, 1);
   return `
-    <h3>Job</h3>
-    <label class="field">Project reference<input data-pf-root="ref" data-k="ref" value="${esc(project.ref)}"></label>
-    <label class="field">Address<input data-pf-root="address" data-k="address" value="${esc(project.address)}"></label>
-    <label class="field">Engineer<input data-pf-root="engineer" data-k="engineer" value="${esc(project.engineer)}"></label>
-    <h3>Site</h3>
-    <div class="grid2">
-      <label class="field">Wind class<select data-pf-root="windClass" data-k="windClass">${Object.keys(WIND_CLASSES).map(k => `<option${k === project.windClass ? " selected" : ""}>${k}</option>`).join("")}</select></label>
-      <label class="field">Net roof uplift Cp<input type="number" step="0.05" data-pf-root="cnet" data-k="cnet" data-num="1" value="${esc(project.cnet)}"></label>
-      <label class="field">Site class<select data-pf-root="siteClass" data-k="siteClass">${SITE_CLASSES.map(k => `<option${k === project.siteClass ? " selected" : ""}>${k}</option>`).join("")}</select></label>
-      <label class="field">Default bearing, kPa<input type="number" step="5" data-pf-root="bearing" data-k="bearing" data-num="1" value="${esc(project.bearing)}"></label>
-    </div>
-    <p class="small-text">V<sub>h,u</sub> = ${WIND_CLASSES[project.windClass]} m/s, q = ${fmt(q, 2)} kPa, net uplift ${fmt(project.windPressure, 2)} kPa on roof load widths. Typical net Cp: 1.1 non-cyclonic, 1.6 cyclonic with dominant openings. Confirm for edge zones and your roof form.</p>
     <label class="field">Default top-edge restraint spacing, mm<input type="number" step="100" data-pf-root="defaultLtop" data-k="defaultLtop" data-num="1" value="${esc(project.defaultLtop)}"></label>
+    <label class="field">Net roof uplift Cp override<input type="number" step="0.05" data-pf-root="cnet" data-k="cnet" data-num="1" value="${esc(project.cnet)}" placeholder="${designWind(project).cpRoof}"></label>
     <h3>Surface loads, kPa</h3>
     <table class="calc"><tr><th>Surface</th><th>G</th><th>Qf</th><th>Qr</th></tr>
     ${project.surfaces.map((s, i) => `<tr><td>${esc(s.name)}${s.wind ? " ↑" : ""}</td>${["G", "Qf", "Qr"].map(c => `<td><input style="width:50px" type="number" step="0.05" data-sf="${i}" data-sc="${c}" data-k="sf${i}${c}" value="${esc(s[c])}" aria-label="${esc(s.name)} ${c}"></td>`).join("")}</tr>`).join("")}
@@ -657,7 +669,12 @@ function libraryPanel() {
 
 function onSideChange(evt) {
   const t = evt.target;
-  const val = t.type === "number" || t.dataset.num ? (t.value === "" ? 0 : Number(t.value)) : t.value;
+  if (t.id === "geoFile") { if (t.files[0]) readGeotech(t.files[0]).catch(err => { console.error(err); alert("Could not read that report: " + err.message); }); return; }
+  if (t.dataset.geo) { project.geo = project.geo || {}; project.geo[t.dataset.geo] = t.type === "checkbox" ? t.checked : t.value; update(); return; }
+  if (t.dataset.fs) { project.footing[t.dataset.fs] = t.value; update(); return; }
+  if (t.dataset.ftg) { project.footing.type = t.dataset.ftg; update(); return; }
+  if (t.dataset.br) { const pg = project.pages[Number(t.dataset.bp)]; pg.bracing = pg.bracing || {}; pg.bracing[t.dataset.br] = Number(t.value) || 0; update(); return; }
+  const val = t.type === "checkbox" ? t.checked : t.type === "number" || t.dataset.num ? (t.value === "" ? 0 : Number(t.value)) : t.value;
   if (t.dataset.pfRoot) { project[t.dataset.pfRoot] = val; update(); return; }
   if (t.dataset.sf != null) { project.surfaces[Number(t.dataset.sf)][t.dataset.sc] = val; update(); return; }
   if (t.dataset.use) { project.uses[t.dataset.use][t.dataset.uc] = val; update(); return; }
@@ -678,9 +695,17 @@ function onSideChange(evt) {
 }
 
 function onSideClick(evt) {
+  const pick = evt.target.closest("[data-pick]");
+  if (pick) { selected = pick.dataset.pick; setTab("member"); update(); return; }
   const b = evt.target.closest("[data-act]");
   if (!b) return;
   const act = b.dataset.act, i = Number(b.dataset.i), el = selected && elById(selected);
+  if (act === "applygeo") {
+    if (b.dataset.f2 === "ys") project.geo.ys = b.dataset.v;
+    else if (b.dataset.f2 === "bearing") project.bearing = Number(b.dataset.v);
+    else project[b.dataset.f2] = b.dataset.v;
+    update(); return;
+  }
   if (act === "savegrades") {
     try { project.timberGrades = JSON.parse($("gradesJson").value); update(); }
     catch (e) { alert("That is not valid JSON: " + e.message); }
@@ -697,7 +722,7 @@ function onSideClick(evt) {
     return;
   }
   pushUndo();
-  if (act === "addload") { (el.loads = el.loads || []).push({ surface: el.use === "roof" ? "roof-sheet" : "floor-timber", width: 1 }); }
+  if (act === "addload") { (el.loads = el.loads || []).push({ surface: el.type === "wall" || el.use === "roof" ? (project.roofType || "roof-sheet") : "floor-timber", width: 1 }); }
   if (act === "delload") el.loads.splice(i, 1);
   if (act === "addpoint") { (el.points = el.points || []).push({ src: "", x: 0, G: 0, Qf: 0, Qr: 0, Wu: 0 }); }
   if (act === "delpoint") el.points.splice(i, 1);
@@ -720,12 +745,13 @@ function deleteSelected() {
 // ---------- Schedule ----------
 
 function scheduleRows() {
-  return project.elements.filter(e => ["beam", "column", "footing"].includes(e.type)).map(el => {
+  return project.elements.filter(e => ["beam", "column", "footing", "wall"].includes(e.type)).map(el => {
     const r = solved.results[el.id];
     const good = r && !r.error;
     const base = { id: el.id, tag: el.tag, page: el.page + 1, type: el.type, section: good ? r.name : "–", ok: good && r.ok, util: good ? r.util : null };
     if (!good) return { ...base, span: "", R1: "", R2: "", uplift: "", M: "", V: "", defl: "" };
     if (el.type === "beam") return { ...base, span: fmt(r.L, 2), R1: fmt(r.r1u), R2: el.support === "cant" ? "–" : fmt(r.r2u), uplift: fmt(Math.max(upliftReaction(r.r1), upliftReaction(r.r2))), M: `${fmt(Math.abs(r.gov.M))} / ${fmt(r.gov.phiM)}`, V: `${fmt(Math.abs(r.gov.V))} / ${fmt(r.gov.phiV)}`, defl: `${fmt(Math.abs(r.dPeak))} / ${fmt(r.dLimit)}` };
+    if (el.type === "wall") return { ...base, span: fmt(r.h, 2), R1: fmt(r.line.G + r.line.Qf) + " /m", R2: "–", uplift: fmt(r.netUp) + " /m", M: "–", V: "–", defl: "–" };
     if (el.type === "column") return { ...base, span: fmt(r.h, 2), R1: fmt(r.Nstar), R2: "–", uplift: fmt(r.up), M: "–", V: "–", defl: "–" };
     return { ...base, span: "–", R1: fmt(r.service), R2: "–", uplift: fmt(r.netUp), M: "–", V: "–", defl: "–" };
   });
@@ -863,12 +889,12 @@ async function exportPdf() {
     project.elements.filter(e => e.page === pi).forEach(el => {
       const r = solved.results[el.id];
       const bad = r && (r.error || r.ok === false);
-      if (el.type === "beam" || el.type === "measure") {
+      if (el.type === "beam" || el.type === "measure" || el.type === "wall") {
         const a = map(el.x1, el.y1), b = map(el.x2, el.y2);
-        const color = el.type === "measure" ? purple : bad ? red : blue;
-        page.drawLine({ start: a, end: b, thickness: el.type === "measure" ? 0.8 : 2, color, dashArray: el.support === "cant" ? [8, 3] : undefined });
+        const color = el.type === "measure" ? purple : bad ? red : el.type === "wall" ? rgb(0.12, 0.48, 0.3) : blue;
+        page.drawLine({ start: a, end: b, thickness: el.type === "measure" ? 0.8 : el.type === "wall" ? 3.5 : 2, color, dashArray: el.support === "cant" || el.brace ? [8, 3] : undefined });
         const { x, y, ang } = labelPos(el, fs);
-        const label = el.type === "measure" ? Math.round(Math.hypot(el.x2 - el.x1, el.y2 - el.y1) * scale) + " mm" : planLabel(el);
+        const label = el.type === "measure" ? Math.round(Math.hypot(el.x2 - el.x1, el.y2 - el.y1) * scale) + " mm" : el.type === "wall" ? wallLabel(el) : planLabel(el);
         text(label, x, y, color, ang, true);
       } else if (el.type === "column" || el.type === "footing") {
         const isCol = el.type === "column";
@@ -923,9 +949,30 @@ function addSchedulePages(doc, plain, bold, rgb, safe) {
 
 // ---------- Print report ----------
 
+function designBasis() {
+  const p = project, w = designWind(p), g = p.geo || {}, f = p.footing || {}, con = CONSTRUCTION[p.construction];
+  const opt = footingOptions(p.siteClass, Number(p.bearing) || 0).find(o => o.id === f.type);
+  return `<p>${esc(p.ref)} ${esc(p.address)}<br>Engineer: ${esc(p.engineer) || "–"} · ${new Date().toLocaleDateString("en-AU")}</p>
+    <h2>Design basis</h2>
+    <table>
+      <tr><td>Geotechnical report</td><td class="l">${esc(g.ref || g.fileName || "Not recorded")}${g.reviewed ? "" : " (not marked as reviewed)"}</td></tr>
+      <tr><td>Site</td><td class="l">Class ${esc(p.siteClass)}${g.ys ? `, ys ${esc(g.ys)} mm` : ""}, design bearing ${esc(p.bearing)} kPa</td></tr>
+      <tr><td>Wind</td><td class="l">${esc(p.windClass)}, Vh,u ${w.Vu} m/s, qu ${fmt(w.q, 2)} kPa, roof uplift ${fmt(w.roofUp, 2)} kPa, stud pressure ${fmt(w.wall, 2)} kPa${g.windReviewed ? "" : " (not marked as confirmed)"}</td></tr>
+      <tr><td>Roof</td><td class="l">${esc((p.surfaces.find(s => s.id === p.roofType) || {}).name || "Not set")}, ${esc(p.roofForm || "form not set")}, ${esc(p.pitch || "?")}°, ${esc(p.roofFrame || "")}</td></tr>
+      <tr><td>Walls</td><td class="l">${esc(con ? con.label : "Not set")}${con ? `, AS 2870 equivalent ${esc(EQ_LABEL[con.eq])}` : ""}, ${esc(p.storeys)} storey</td></tr>
+      <tr><td>Footing</td><td class="l">${opt ? `${esc(opt.label)} (AS 2870 ${esc(opt.ref)}): depth ${esc(f.depth || "?")} mm, width ${esc(f.width || "?")} mm, spacing ${esc(f.spacing || "?")} m, bottom ${esc(f.bars || "?")}, top ${esc(f.top || "–")}, mesh ${esc(f.mesh || "?")}` : "Not selected"}</td></tr>
+    </table>`;
+}
+
+function bracingReport() {
+  const br = bracingSummary(project, solved.results);
+  if (!br.length) return "";
+  return `<h2>Bracing</h2><table><tr><th>Page</th><th>Direction</th><th>Racking kN</th><th>Capacity kN</th><th>Max gap m</th><th class="l">Walls</th></tr>${br.flatMap(b => [["X", b.x], ["Y", b.y]].map(([d, v]) => `<tr><td>${b.page + 1}</td><td>${d}</td><td>${fmt(v.F)}</td><td class="${v.ok ? "" : "fail"}">${fmt(v.cap)}</td><td>${fmt(v.gap)}</td><td class="l">${esc(v.items.map(i => i.tag).join(", "))}</td></tr>`)).join("")}</table>`;
+}
+
 function buildReport() {
   const rows = scheduleRows();
-  const members = project.elements.filter(e => ["beam", "column", "footing"].includes(e.type)).map(el => {
+  const members = project.elements.filter(e => ["beam", "column", "footing", "wall"].includes(e.type)).map(el => {
     const r = solved.results[el.id];
     if (!r || r.error) return `<div class="member"><h2>${esc(el.tag)}</h2><p>${esc(r ? r.error : "Not solved")}</p></div>`;
     const head = `<h2>${esc(el.tag)}: ${esc(r.name)} (${r.ok ? "PASS" : "FAIL"}, ${fmt(r.util * 100, 0)}%)</h2>`;
@@ -937,6 +984,10 @@ function buildReport() {
         ${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td>${fmt(x.M)}</td><td>${fmt(x.phiM)}</td><td>${fmt(x.V)}</td><td>${fmt(x.phiV)}</td><td class="l">${esc(x.detail)}</td></tr>`).join("")}</table>
         <p>Deflection ${fmt(Math.abs(r.dPeak))} mm vs limit ${fmt(r.dLimit)} mm. Reactions, unfactored G / Qf / Qr / W: end 1 ${fmt(r.r1.G)} / ${fmt(r.r1.Qf)} / ${fmt(r.r1.Qr)} / ${fmt(r.r1.Wu)} kN${el.support === "cant" ? "" : `; end 2 ${fmt(r.r2.G)} / ${fmt(r.r2.Qf)} / ${fmt(r.r2.Qr)} / ${fmt(r.r2.Wu)} kN`}.</p></div>`;
     }
+    if (el.type === "wall") {
+      return `<div class="member">${head}<p>${esc(WALL_TYPES[el.wallType] || "")}, height ${fmt(r.h, 2)} m, length ${fmt(r.L, 2)} m. Line loads incl. wall, kN/m: G ${fmt(r.line.G)}, Qf ${fmt(r.line.Qf)}, Qr ${fmt(r.line.Qr)}, W ${fmt(r.line.Wu)}.${el.brace ? " Bracing wall: " + esc(braceCapacity(el, r, project).detail) + "." : ""}</p>
+        <table><tr><th>Check</th><th>Action</th><th>Capacity</th><th class="l">Basis</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td>${fmt(x.star, 2)}</td><td>${fmt(x.cap, 2)} ${esc(x.units)}</td><td class="l">${esc(x.detail)}</td></tr>`).join("")}</table></div>`;
+    }
     if (el.type === "column") {
       return `<div class="member">${head}<p>Height ${fmt(r.h, 2)} m. Loads from ${esc((r.feeds || []).join(", ") || "none")}: G ${fmt(r.N.G)}, Qf ${fmt(r.N.Qf)}, Qr ${fmt(r.N.Qr)}, W ${fmt(r.N.Wu)} kN.</p>
         <table><tr><th>Check</th><th>N* kN</th><th>φN kN</th><th class="l">Basis</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td>${fmt(x.star)}</td><td>${isFinite(x.cap) ? fmt(x.cap) : "-"}</td><td class="l">${esc(x.detail)}</td></tr>`).join("")}</table></div>`;
@@ -945,12 +996,13 @@ function buildReport() {
   }).join("");
   $("report").innerHTML = `
     <h1>Structural mark-up calculations</h1>
-    <p>${esc(project.ref)} ${esc(project.address)}<br>Engineer: ${esc(project.engineer) || "–"} · Wind class ${esc(project.windClass)} (net uplift ${fmt(project.windPressure, 2)} kPa) · Site class ${esc(project.siteClass)} · ${new Date().toLocaleDateString("en-AU")}</p>
+    ${designBasis()}
     <h2>Schedule</h2>
     <table><tr><th>Tag</th><th class="l">Section</th><th>Span/ht</th><th>End 1</th><th>End 2</th><th>Uplift</th><th>M*/φM</th><th>V*/φV</th><th>δ/limit</th><th>Util</th></tr>
     ${rows.map(r => `<tr><td>${esc(r.tag)}</td><td class="l">${esc(r.section)}</td><td>${r.span}</td><td>${r.R1}</td><td>${r.R2}</td><td>${r.uplift}</td><td>${r.M}</td><td>${r.V}</td><td>${r.defl}</td><td class="${r.ok ? "" : "fail"}">${r.util == null ? "–" : fmt(r.util * 100, 0) + "%"}</td></tr>`).join("")}</table>
+    ${bracingReport()}
     ${members}
-    <div class="disclaimer">Preliminary design aid. Actions to AS/NZS 1170.0 and 1170.1; steel to AS 4100; timber to AS 1720.1. Results must be verified and certified by a qualified structural engineer. Connections, bearing, combined actions, wind on walls, bracing and footing reinforcement are not checked.</div>`;
+    <div class="disclaimer">Preliminary design aid. Actions to AS/NZS 1170.0 and 1170.1, wind to AS 4055, steel to AS 4100:2020, timber to AS 1720.1, masonry to AS 3700:2018, bracing to AS 1684.2, footings selected under AS 2870. Results must be verified and certified by a qualified structural engineer. Connections, bearing, downward wind, shear distribution, diaphragm action, tie design and footing reinforcement design are not checked.</div>`;
 }
 
 // ---------- Wiring ----------
@@ -1001,6 +1053,7 @@ function init() {
 
   $("tabBody").addEventListener("change", onSideChange);
   $("tabBody").addEventListener("click", onSideClick);
+  $("tabBody").addEventListener("toggle", e => { if (e.target.open && e.target.dataset.step) project.openStep = e.target.dataset.step; }, true);
   $("scheduleToggle").addEventListener("click", () => {
     const c = $("schedule").classList.toggle("closed");
     $("scheduleToggle").setAttribute("aria-expanded", String(!c));
