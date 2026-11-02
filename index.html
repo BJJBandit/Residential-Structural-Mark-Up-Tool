@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Residential Structural Mark-Up</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="appbar">
+  <h1>Residential Structural Mark-Up</h1>
+  <div class="bar-actions">
+    <label class="btn primary">Open plan<input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg" hidden></label>
+    <button id="blankBtn" class="btn">Blank sheet</button>
+    <span class="sep"></span>
+    <button id="saveBtn" class="btn">Save project</button>
+    <label class="btn">Load project<input id="loadInput" type="file" accept=".json,application/json" hidden></label>
+    <span class="sep"></span>
+    <button id="pdfBtn" class="btn">Export marked-up PDF</button>
+    <button id="csvBtn" class="btn">Schedule CSV</button>
+    <button id="printBtn" class="btn">Print calcs</button>
+  </div>
+</header>
+
+<div class="workspace">
+  <nav class="tools" id="tools" aria-label="Drawing tools"></nav>
+
+  <section class="stage-wrap">
+    <div class="stage-bar">
+      <label class="field-inline" id="pageField" hidden>Page <select id="pageSel"></select></label>
+      <label class="field-inline">Scale
+        <select id="scaleSel">
+          <option value="20">1:20</option><option value="50">1:50</option><option value="100">1:100</option>
+          <option value="200">1:200</option><option value="custom">Calibrated</option>
+        </select>
+      </label>
+      <button id="calBtn" class="btn small">Calibrate</button>
+      <span id="scaleInfo" class="muted"></span>
+      <span class="spacer"></span>
+      <button id="zoomOut" class="btn small" aria-label="Zoom out">−</button>
+      <span id="zoomLabel" class="muted zoom-label">100%</span>
+      <button id="zoomIn" class="btn small" aria-label="Zoom in">+</button>
+      <button id="zoomFit" class="btn small">Fit</button>
+    </div>
+    <div class="hint" id="hint"></div>
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">
+        <h2>Start with a plan</h2>
+        <p>Open an architectural PDF or image, or use a blank sheet. Your plan stays in this browser and is never uploaded.</p>
+        <ol>
+          <li>Set the scale, or calibrate against a known dimension.</li>
+          <li>Draw beams, then place columns and footings at their ends. Loads transfer automatically where members meet.</li>
+          <li>Assign load widths and pick sections in the panel, then export the marked-up PDF.</li>
+        </ol>
+      </div>
+      <div class="sheet" id="sheet" hidden>
+        <canvas id="pdfCanvas"></canvas>
+        <svg id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="member" role="tab">Member</button>
+      <button class="tab" data-tab="project" role="tab">Project</button>
+      <button class="tab" data-tab="library" role="tab">Library</button>
+    </div>
+    <div class="tab-body" id="tabBody"></div>
+  </aside>
+</div>
+
+<section class="schedule" id="schedule">
+  <button class="schedule-head" id="scheduleToggle" aria-expanded="true">
+    <span class="chev">▾</span> Member schedule <span id="scheduleSum" class="muted"></span>
+  </button>
+  <div class="schedule-body" id="scheduleBody"></div>
+</section>
+
+<div id="report" class="report"></div>
+
+<dialog id="calDialog">
+  <form method="dialog">
+    <h3>Calibrate scale</h3>
+    <label class="field">Real length of the line you drew (mm)<input id="calMm" type="number" min="1" step="1" required></label>
+    <div class="dlg-actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Set scale</button></div>
+  </form>
+</dialog>
+<dialog id="noteDialog">
+  <form method="dialog">
+    <h3>Note</h3>
+    <label class="field">Text<textarea id="noteText" rows="3"></textarea></label>
+    <div class="dlg-actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Place note</button></div>
+  </form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="data.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

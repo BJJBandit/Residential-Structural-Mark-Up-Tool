@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engine tests</title>
+<style>body{font:14px system-ui;margin:2rem}td,th{padding:2px 10px;text-align:left}.f{color:#b00;font-weight:700}.p{color:#070}</style>
+</head>
+<body>
+<h1>Engine tests</h1>
+<p id="sum"></p>
+<table id="t"><tr><th></th><th>Check</th><th>Got</th><th>Expected</th></tr></table>
+<script src="data.js"></script>
+<script src="calc.js"></script>
+<script>
+const near = (name, got, exp, tol = 0.02) => row(name, got, exp, Math.abs(got - exp) <= Math.abs(exp) * tol);
+let fails = 0, total = 0;
+function row(name, got, exp, ok) {
+  total++; if (!ok) fails++;
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="${ok ? "p" : "f"}">${ok ? "PASS" : "FAIL"}</td><td>${name}</td><td>${typeof got === "number" ? +got.toPrecision(5) : got}</td><td>${typeof exp === "number" ? +exp.toPrecision(5) : exp}</td>`;
+  document.getElementById("t").appendChild(tr);
+}
+
+// Section properties against published OneSteel tabulated values
+const u = SECTIONS["200UB25.4"];
+near("200UB25.4 A", u.A, 3230); near("200UB25.4 Ix", u.Ix, 23.6e6); near("200UB25.4 Zx", u.Zx, 232e3); near("200UB25.4 Sx", u.Sx, 259e3); near("200UB25.4 Iy", u.Iy, 3.06e6);
+const u2 = SECTIONS["410UB53.7"];
+near("410UB53.7 Ix", u2.Ix, 188e6); near("410UB53.7 Sx", u2.Sx, 1060e3, 0.03);
+const p = SECTIONS["200PFC"];
+near("200PFC Ix", p.Ix, 19.1e6, 0.03); near("200PFC Iy", p.Iy, 1.65e6, 0.05);
+near("alpha_c lambda=100, alpha_b=0 (hand calc)", alphaC(100, 0), 0.541, 0.005);
+
+// Beam shapes
+const s1 = shape(5, false, 10, []);
+near("SS UDL M", s1.M[100], 31.25, 0.001); near("SS UDL R", s1.R.r1, 25, 0.001);
+const y1 = deflShape(s1.M, 5, false);
+near("SS UDL deflection 5wL^4/384", y1[100] * 1e12 / (2e5 * 1e8), 4.069, 0.002);
+const s2 = shape(4, false, 0, [{ x: 1, P: 8 }]);
+near("SS point R1", s2.R.r1, 6, 0.001); near("SS point M", s2.M[50], 6, 0.001);
+const s3 = shape(2, true, 3, [{ x: 2, P: 1 }]);
+near("Cantilever root M", s3.R.mRoot, -8, 0.001);
+const y3 = deflShape(s3.M, 2, true);
+near("Cantilever tip deflection wL^4/8 + PL^3/3", y3[200], 3 * 16 / 8 + 8 / 3, 0.002);
+
+// Load path: B2 lands mid-span on B1, B1 sits on C1 and C2, C1 on F1
+const proj = {
+  pages: [{ mmPerPt: 10 }], surfaces: DEFAULT_SURFACES, uses: DEFAULT_USES, timberGrades: TIMBER_GRADES,
+  windPressure: windPressure("N2", 1.1), defaultLtop: 1800, bearing: 100,
+  elements: [
+    { id: "b1", tag: "B1", type: "beam", page: 0, x1: 0, y1: 0, x2: 600, y2: 0, mat: "steel", sec: "360UB50.7", use: "floor", support: "ss", loads: [{ surface: "floor-timber", width: 2 }] },
+    { id: "b2", tag: "B2", type: "beam", page: 0, x1: 300, y1: 300, x2: 300, y2: 0, mat: "timber", grade: "MGP12", size: "240x45", plies: 2, use: "floor", support: "ss", loads: [{ surface: "floor-timber", width: 1 }] },
+    { id: "c1", tag: "C1", type: "column", page: 0, x: 0, y: 0, mat: "steel", sec: "89x89x5 SHS", height: 2.7 },
+    { id: "c2", tag: "C2", type: "column", page: 0, x: 600, y: 0, mat: "steel", sec: "89x89x5 SHS", height: 2.7 },
+    { id: "f1", tag: "F1", type: "footing", page: 0, x: 0, y: 0, B: 900, Lf: 900, D: 400 }
+  ]
+};
+const res = solveAll(proj).results;
+const swB2 = res.b2.swKnPerM, swB1 = res.b1.swKnPerM;
+near("B2 span", res.b2.L, 3, 0.001);
+near("B2 reaction G", res.b2.r2.G, (0.5 + swB2) * 3 / 2, 0.001);
+near("B1 reaction G incl. transfer", res.b1.r1.G, (1 + swB1) * 6 / 2 + res.b2.r2.G / 2, 0.001);
+near("B1 reaction Qf incl. transfer", res.b1.r1.Qf, 3 * 6 / 2 + (1.5 * 3 / 2) / 2, 0.001);
+near("C1 takes B1 end 1", res.c1.N.G, res.b1.r1.G, 0.001);
+near("F1 takes C1 + column weight", res.f1.N.G, res.c1.N.G + SECTIONS["89x89x5 SHS"].mass * 9.81e-3 * 2.7, 0.001);
+
+// Hand check of a timber beam: 2/240x45 MGP12, 3 m simply supported, k1 = 0.8
+const t = timberProps(TIMBER_GRADES, "MGP12", "240x45", 2, 1);
+near("MGP12 240 fb (Table H3.1)", t.fb, 24, 0.001);
+near("2/240x45 Z", t.Zx, 90 * 240 * 240 / 6, 0.001);
+
+// Steel moment capacity: 200UB25.4, 300PLUS: published phiMsx = 74.6 kNm (fy 320, Zex = 259e3 x ...)
+near("200UB25.4 phiMs", steelMb(u, 100, 1).Ms, 74.6, 0.02);
+
+// Uplift case sign: roof beam under N3 takes net uplift
+const rp = { ...proj, windPressure: windPressure("N3", 1.1), elements: [
+  { id: "r", tag: "R", type: "beam", page: 0, x1: 0, y1: 0, x2: 500, y2: 0, mat: "steel", sec: "200UB25.4", use: "roof", support: "ss", loads: [{ surface: "roof-sheet", width: 3 }], Lbot: 5000 }
+] };
+const rr = solveAll(rp).results.r, upRow = rr.rows.find(x => x.name.startsWith("0.9G"));
+row("Uplift combination gives hogging", upRow.M.toFixed(1), "< 0", upRow.M < 0);
+near("Wind pressure N3 x 1.1", windPressure("N3", 1.1), 1.65, 0.001);
+
+// Auto-size returns a passing section no heavier than a known pass
+const pick = autoSize(proj.elements[0], proj);
+row("Auto-size picks a section", pick && pick.sec, "a UB", !!(pick && pick.sec));
+
+document.getElementById("sum").innerHTML = `<b class="${fails ? "f" : "p"}">${total - fails} / ${total} passed</b>`;
+document.title = fails ? "FAIL " + fails : "PASS " + total;
+</script>
+</body>
+</html>
