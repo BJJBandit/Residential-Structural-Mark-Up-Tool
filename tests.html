@@ -121,6 +121,13 @@ row("Beam end 1 carried by wall", lpr.find(r => r.from === "B9 end 1").to, "W1",
 const studW = solveAll({ ...wp, elements: [{ ...wp.elements[0], loads: [], onGround: false }] }).results.w1;
 near("Stud 1.35G capacity, hand calc", studW.rows[0].cap, 0.9 * 0.57 * (200 / (0.96 * 1350 / 35) ** 2) * 18 * 3150 * 1e-3, 0.001);
 
+// Hollow sections use the hollow section limits: stocky SHS is compact with kf = 1
+const shs = SECTIONS["89x89x5 SHS"];
+near("89x89x5 SHS kf = 1", steelKf(shs), 1, 0.001);
+row("89x89x5 SHS is compact", steelZe(shs).cls, "compact", steelZe(shs).cls === "compact");
+const cl = checkColumn({ mat: "steel", sec: "89x89x5 SHS", height: 2.4, ke: 1 }, { G: 10, Qf: 0, Qr: 0, Wu: 0 }, { timberGrades: TIMBER_GRADES });
+row("Column check sees kf = 1", cl.rows[0].detail.includes("kf = 1.00"), true, cl.rows[0].detail.includes("kf = 1.00"));
+
 // AS 4100 Table 5.6.3(B): unrestrained cantilever uses kl = 2.0
 const can = solveAll({ ...proj, elements: [{ id: "c", tag: "C", type: "beam", page: 0, x1: 0, y1: 0, x2: 300, y2: 0, mat: "steel", sec: "200UB25.4", use: "floor", support: "cant", loads: [{ surface: "floor-timber", width: 1 }] }] }).results.c;
 row("Cantilever Le = 2 x 3 m", can.rows[0].detail.slice(0, 10), "Le = 6.00", can.rows[0].detail.startsWith("Le = 6.00"));

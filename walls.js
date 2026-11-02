@@ -228,7 +228,8 @@ function loadPathRows(project, solved) {
       const c = (carriers[e.id] || [])[0];
       const lower = referenced.has(e.id);
       const ground = e.type === "wall" && e.onGround;
-      rows.push({ id: e.id, from: e.tag, to: c ? tag(c.to) : lower ? "linked to another level" : ground ? "strip footing" : null });
+      const unloaded = e.type === "wall" && !(e.loads || []).length && !(e.points || []).length && !(conn.onSupport[e.id] || []).length;
+      rows.push({ id: e.id, from: e.tag, to: c ? tag(c.to) : lower ? "linked to another level" : ground ? "strip footing" : unloaded ? "non-loadbearing, on the floor" : null });
     }
   });
   return rows;

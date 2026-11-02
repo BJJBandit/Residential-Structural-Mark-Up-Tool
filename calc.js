@@ -19,7 +19,7 @@ function iSection(name, d, b, tf, tw, r, mass, family) {
   const Iy = (2 * tf * b ** 3 + h * tw ** 3) / 12 + 4 * fa * xf ** 2;
   const Sx = b * tf * (d - tf) + tw * h * h / 4 + 4 * fa * yf;
   const s = {
-    name, family, kind: "I", mass, d, b, tf, tw, r,
+    name, family, shape: "I", mass, d, b, tf, tw, r,
     A: 2 * b * tf + h * tw + 4 * fa, Ix, Iy, Zx: Ix / (d / 2), Sx,
     J: (2 * b * tf ** 3 + (d - tf) * tw ** 3) / 3, Iw: Iy * (d - tf) ** 2 / 4,
     fy: fyHotRolled(tf), fyw: fyHotRolled(tw), E: 200000, alphaB: 0,
@@ -39,7 +39,7 @@ function pfcSection(name, d, b, tf, tw, r, mass) {
   const bw = b - tw / 2, df = d - tf;
   const Iw = tf * bw ** 3 * df ** 2 / 12 * (3 * bw * tf + 2 * df * tw) / (6 * bw * tf + df * tw);
   return {
-    name, family: "PFC", kind: "I", mass, d, b, tf, tw, r, A, Ix, Iy, Zx: Ix / (d / 2), Sx,
+    name, family: "PFC", shape: "I", mass, d, b, tf, tw, r, A, Ix, Iy, Zx: Ix / (d / 2), Sx,
     J: (2 * b * tf ** 3 + (d - tf) * tw ** 3) / 3, Iw,
     fy: fyHotRolled(tf), fyw: fyHotRolled(tw), E: 200000, alphaB: 0.5,
     Aw: d * tw, flangeOutstand: b - tw - r, webClear: h - 2 * r
@@ -59,7 +59,7 @@ function rhsSection(d, b, t) {
   const pm = 2 * (d + b - 2 * t) - (8 - 2 * Math.PI) * (ro - t / 2);
   const name = (d === b ? `${d}x${b}x${t} SHS` : `${d}x${b}x${t} RHS`);
   return {
-    name, family: d === b ? "SHS" : "RHS", kind: "RHS", mass: A * 7850e-6, d, b, t, A, Ix, Iy,
+    name, family: d === b ? "SHS" : "RHS", shape: "RHS", mass: A * 7850e-6, d, b, t, A, Ix, Iy,
     Zx: Ix / (d / 2), Sx: o.S - i.S, J: 4 * am * am * t / pm, Iw: 0,
     fy: 450, fyw: 450, E: 200000, alphaB: -0.5, Aw: 2 * (d - 2 * t) * t,
     flangeOutstand: b - 2 * t, webClear: d - 2 * t, tf: t, tw: t
@@ -75,7 +75,7 @@ STEEL_RHS.forEach(r => { const s = rhsSection(r[0], r[1], r[2]); SECTIONS[s.name
 // AS 4100 Cl 5.2: effective section modulus
 function steelZe(s) {
   const k = Math.sqrt(s.fy / 250);
-  const hollow = s.kind === "RHS";
+  const hollow = s.shape === "RHS";
   const lf = s.flangeOutstand / s.tf * k;
   const lep = hollow ? 30 : 9, ley = hollow ? 40 : 16;
   const lw = s.webClear / s.tw * Math.sqrt(s.fyw / 250);
@@ -121,7 +121,7 @@ function alphaC(lambdaN, alphaB) {
 // AS 4100 Cl 6.2 form factor by effective widths of the plate elements
 function steelKf(s) {
   const k = Math.sqrt(s.fy / 250), kw = Math.sqrt(s.fyw / 250);
-  if (s.kind === "RHS") {
+  if (s.shape === "RHS") {
     const le = s.flangeOutstand / s.t * k, lw = s.webClear / s.t * k;
     const lost = 2 * s.t * (s.flangeOutstand * Math.max(0, 1 - 40 / le) + s.webClear * Math.max(0, 1 - 40 / lw));
     return Math.max(0.1, 1 - lost / s.A);

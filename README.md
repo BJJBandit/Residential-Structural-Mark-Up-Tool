@@ -137,6 +137,8 @@ Preliminary design aid. All results must be verified and certified by a qualifie
   1.4 for the top edge in compression. Twist restraint factors are 1.0.
 - PFCs are treated as loaded through the shear centre. Check eccentric loading by hand.
 - Balcony edge load of 1.5 kN/m and earthquake actions are not included.
+- Sloped members use their plan span, so rafter deflection is understated on steep roofs. Hips and valleys
+  are not modelled. Veneer above a lintel is not added automatically; add it as a load width.
 - Wall loads are shared uniformly along the wall. Openings, lintels and jamb studs need their own members.
 - Racking is shared by capacity only. Diaphragms, torsion and bracing wall connections are not checked.
 - Masonry is unreinforced, one-way, solid or cored, with no engaged piers. Two-way bending (Cl 7.4.4),

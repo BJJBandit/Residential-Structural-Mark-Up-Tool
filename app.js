@@ -37,14 +37,14 @@ let tool = "select", selected = null, activeTab = "workflow";
 let draft = null, drag = null, snapPt = null, pickWidth = null;
 let solved = { results: {}, warnings: [] };
 const undoStack = [], redoStack = [];
-let renderTask = null, renderTimer = null, spaceDown = false, pan = null;
+let renderTask = null, renderGen = 0, renderTimer = null, spaceDown = false, pan = null;
 
 // ---------- Helpers ----------
 
 const pageInfo = () => project.pages[view.page];
 const mmPt = () => (pageInfo() ? pageInfo().mmPerPt : 1);
 const elById = id => project.elements.find(e => e.id === id);
-const fontSize = () => { const d = docInfo && docInfo.dims[view.page]; return d ? Math.max(d.w, d.h) / 105 : 10; };
+const fontSize = () => { const d = docInfo && docInfo.dims[view.page]; return d ? Math.max(d.w, d.h) / 135 : 10; };
 
 function refreshProjectDerived() { project.windPressure = designWind(project).roofUp; }
 
@@ -120,13 +120,21 @@ async function renderPage() {
   const cssW = d.w * view.zoom, cssH = d.h * view.zoom;
   $("sheet").style.width = cssW + "px"; $("sheet").style.height = cssH + "px";
   cv.style.width = cssW + "px"; cv.style.height = cssH + "px";
+  const gen = ++renderGen;
   if (renderTask) { try { renderTask.cancel(); } catch (e) { /* already done */ } renderTask = null; }
   if (docInfo.kind === "pdf") {
     const page = await docInfo.pdf.getPage(view.page + 1);
+    if (gen !== renderGen) return;
     const vp = page.getViewport({ scale: q });
-    cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
-    renderTask = page.render({ canvasContext: ctx, viewport: vp });
-    try { await renderTask.promise; } catch (e) { if (e.name !== "RenderingCancelledException") console.error(e); }
+    // Overlapping renders on one canvas corrupt its transform, so each draws off-screen first.
+    const off = document.createElement("canvas");
+    off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+    const task = page.render({ canvasContext: off.getContext("2d"), viewport: vp });
+    renderTask = task;
+    try { await task.promise; } catch (e) { if (e.name !== "RenderingCancelledException") console.error(e); return; }
+    if (gen !== renderGen) return;
+    cv.width = off.width; cv.height = off.height;
+    ctx.drawImage(off, 0, 0);
   } else {
     cv.width = Math.floor(d.w * q); cv.height = Math.floor(d.h * q);
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
@@ -234,8 +242,7 @@ function drawOverlay() {
 }
 
 function wallLabel(el) {
-  const r = solved.results[el.id];
-  return `${el.tag}${el.brace ? " BR" : ""} ${r && !r.error ? r.name : "?"}`;
+  return `${el.tag}${el.brace ? " BR" : ""}`;
 }
 
 function symbolSize(el, fallbackMm) {
@@ -877,7 +884,7 @@ async function exportPdf() {
     const page = pages[pi], vp = viewports[pi];
     const pageRot = vp ? vp.rotation : 0;
     const map = (x, y) => { if (vp) { const q = vp.convertToPdfPoint(x, y); return { x: q[0], y: q[1] }; } return { x, y: d.h - y }; };
-    const fs = Math.max(d.w, d.h) / 105;
+    const fs = Math.max(d.w, d.h) / 135;
     const text = (t, x, y, color, ang = 0, center = false) => {
       const str = safe(t), w = font.widthOfTextAtSize(str, fs);
       const a = ang * Math.PI / 180;
