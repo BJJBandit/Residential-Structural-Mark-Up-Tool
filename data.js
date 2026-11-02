@@ -25,6 +25,12 @@ const STEEL_RHS = [
   [65,65,3],[75,75,3],[75,75,4],[75,75,5],[75,75,6],[89,89,3.5],[89,89,5],[89,89,6],[100,100,4],[100,100,5],[100,100,6],[125,125,5],[125,125,6],[150,150,5],[150,150,6],
   [100,50,3],[100,50,4],[100,50,5],[125,75,4],[125,75,5],[150,50,4],[150,50,5],[150,100,5],[150,100,6],[200,100,5],[200,100,6]
 ];
+// Lintel sections from dimensions, root radii ignored. Flats: width, thickness, laid flat. Angles: vertical leg, horizontal leg, thickness.
+const STEEL_FLAT = [[75,6],[75,8],[75,10],[75,12],[100,6],[100,8],[100,10],[100,12],[150,10],[150,12]];
+const STEEL_ANGLE = [
+  [75,75,6],[75,75,8],[90,90,8],[90,90,10],[100,100,8],[100,100,10],[125,125,10],[150,150,10],[150,150,12],
+  [100,75,6],[100,75,8],[100,75,10],[125,75,8],[125,75,10],[150,90,8],[150,90,10],[150,100,10],[150,100,12]
+];
 
 // AS 1720.1:2010 Tables H2.1, H3.1, 7.1 (Cl 7.3) and E1/E2. bands = [max depth, fb, fs, fc] (MPa).
 // phi = [Category 1, Category 2] from Table 2.1. rhoB, rhoC are the seasoned material constants.
@@ -58,6 +64,10 @@ const DEFAULT_SURFACES = [
   { id: "floor-timber", name: "Timber floor + ceiling", G: 0.50, Qf: 1.5, Qr: 0, wind: false },
   { id: "floor-tiled", name: "Tiled timber floor (wet area)", G: 1.00, Qf: 1.5, Qr: 0, wind: false },
   { id: "floor-slab", name: "100 mm concrete slab + finishes", G: 2.90, Qf: 1.5, Qr: 0, wind: false },
+  { id: "bondek-125", name: "Bondek slab 125 + ceiling", G: 3.40, Qf: 1.5, Qr: 0, wind: false },
+  { id: "bondek-140", name: "Bondek slab 140 + ceiling", G: 3.75, Qf: 1.5, Qr: 0, wind: false },
+  { id: "bondek-150", name: "Bondek slab 150 + ceiling", G: 4.00, Qf: 1.5, Qr: 0, wind: false },
+  { id: "bondek-200", name: "Bondek slab 200 + ceiling", G: 5.25, Qf: 1.5, Qr: 0, wind: false },
   { id: "balcony-low", name: "Timber deck < 1 m above ground", G: 0.40, Qf: 1.5, Qr: 0, wind: false },
   { id: "balcony", name: "Timber deck / balcony >= 1 m", G: 0.40, Qf: 2.0, Qr: 0, wind: false },
   { id: "balcony-tiled", name: "Tiled balcony >= 1 m", G: 1.20, Qf: 2.0, Qr: 0, wind: false },

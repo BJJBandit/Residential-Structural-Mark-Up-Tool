@@ -26,9 +26,16 @@ const defaultProject = () => ({
   surfaces: JSON.parse(JSON.stringify(DEFAULT_SURFACES)),
   uses: JSON.parse(JSON.stringify(DEFAULT_USES)),
   timberGrades: JSON.parse(JSON.stringify(TIMBER_GRADES)),
-  pages: [], elements: [], nextId: 1, counters: { beam: 0, column: 0, footing: 0, wall: 0 },
+  pages: [], elements: [], slabs: [], nextId: 1, counters: { beam: 0, column: 0, footing: 0, wall: 0 },
   lastBeam: null
 });
+
+// Saved projects keep their edited surfaces and gain any presets added since
+function fromSaved(saved) {
+  const p = { ...defaultProject(), ...saved };
+  DEFAULT_SURFACES.forEach(s => { if (!p.surfaces.some(x => x.id === s.id)) p.surfaces.push({ ...s }); });
+  return p;
+}
 
 let project = defaultProject();
 let docInfo = null; // { kind: 'pdf'|'image'|'blank', name, bytes, mime, pdf, dims: [{w,h}] }
@@ -503,8 +510,8 @@ function statusBar(r) {
   return `<div class="status ${r.ok ? "ok" : "bad"}"><span>${r.ok ? "Pass" : "Fail"}</span><span>Utilisation ${fmt(r.util * 100, 0)}%</span></div>`;
 }
 
-function steelOptions(sel) {
-  const fams = ["UB", "UC", "PFC", "SHS", "RHS"];
+function steelOptions(sel, isColumn) {
+  const fams = isColumn ? ["UB", "UC", "PFC", "SHS", "RHS"] : ["UB", "UC", "PFC", "SHS", "RHS", "Flat", "Angle"];
   return fams.map(f => `<optgroup label="${f}">` + Object.values(SECTIONS).filter(s => s.family === f).map(s => `<option value="${esc(s.name)}"${s.name === sel ? " selected" : ""}>${esc(s.name)}</option>`).join("") + "</optgroup>").join("");
 }
 
@@ -523,7 +530,7 @@ function sectionFields(el, isColumn) {
     <label class="field">Material<select data-f="mat" data-k="mat">
       <option value="steel"${el.mat === "steel" ? " selected" : ""}>Steel</option>
       <option value="timber"${el.mat === "timber" ? " selected" : ""}>Timber</option></select></label>
-    ${el.mat === "timber" ? timber : `<label class="field">Section<select data-f="sec" data-k="sec">${steelOptions(el.sec)}</select></label>`}
+    ${el.mat === "timber" ? timber : `<label class="field">Section<select data-f="sec" data-k="sec">${steelOptions(el.sec, isColumn)}</select></label>`}
     <button class="btn block" data-act="autosize">Suggest lightest passing size</button>`;
 }
 
@@ -586,6 +593,8 @@ function beamPanel(el) {
       <button class="icon" data-act="pickwidth" data-i="${i}" title="Measure the width on the plan">⇔</button>
       <button class="icon" data-act="delload" data-i="${i}" aria-label="Remove">×</button></div>`).join("")}
     <button class="btn small" data-act="addload">+ Add load width</button>
+    <label class="field" style="margin-top:.45rem">Masonry over opening, 45° triangle, kPa<input type="number" step="0.1" min="0" data-f="archKpa" data-k="archKpa" data-num="1" value="${esc(el.archKpa || "")}" placeholder="none"></label>
+    <p class="small-text">About 2.0 kPa for a 110 mm leaf. Needs enough masonry above and beside the opening to arch; otherwise add the full height as a load width. Veneer lintels bear at least 150 mm.</p>
     <h3>Point loads</h3>
     ${inbound.length ? `<p class="small-text">Auto from members landing here: ${inbound.map(c => `${esc(elById(c.from).tag)} at ${fmt(c.x, 2)} m`).join(", ")}.</p>` : ""}
     ${pointRows(el, true)}
@@ -646,6 +655,26 @@ function footingPanel(el) {
     <p style="margin-top:.8rem"><button class="btn danger" data-act="delete">Delete footing</button></p>`;
 }
 
+function slabPanel() {
+  const num = (i, f, label, v, ph, step) => `<label class="field">${label}<input type="number" step="${step || 1}" data-slab="${i}" data-sl="${f}" data-k="sl${i}${f}" value="${esc(v ?? "")}" placeholder="${ph}"></label>`;
+  return `
+    <h3>Bondek slabs, one-way strip</h3>
+    ${(project.slabs || []).map((s, i) => {
+      const r = checkBondek(s);
+      return `<div class="member-slab">
+      <div class="row"><input data-slab="${i}" data-sl="tag" data-k="sl${i}tag" value="${esc(s.tag)}" aria-label="Slab tag"><button class="icon" data-slabact="del" data-i="${i}" aria-label="Remove slab">×</button></div>
+      <div class="grid3 small-grid">${num(i, "D", "Depth, mm", s.D, 140, 5)}${num(i, "span", "Span, m", s.span, "", 0.05)}${num(i, "Q", "Q, kPa", s.Q, 1.5, 0.5)}</div>
+      <div class="grid3 small-grid">${num(i, "db", "Top bar, mm", s.db, 16, 1)}${num(i, "spacing", "At, mm", s.spacing, 150, 25)}${num(i, "cover", "Cover, mm", s.cover, 20, 5)}</div>
+      <div class="grid3 small-grid">${num(i, "Gsup", "Added G, kPa", s.Gsup, 0.15, 0.05)}${num(i, "phiMsup", "Supplier φM+, kNm/m", s.phiMsup, "", 0.5)}${num(i, "maxSpan", "Supplier max span, m", s.maxSpan, "", 0.1)}</div>
+      <label class="field"><span><input type="checkbox" data-slab="${i}" data-sl="continuous" data-k="sl${i}c"${s.continuous !== false ? " checked" : ""}> Continuous over a support</span></label>
+      <div class="status ${r.fails ? "bad" : r.ok ? "ok" : ""}"><span>${r.fails ? "Fail" : r.ok ? "Pass" : "Incomplete"}</span><span>Utilisation ${fmt(r.util * 100, 0)}%</span></div>
+      <table class="calc"><tr><th>Check</th><th>Action</th><th>Capacity</th></tr>${r.rows.map(x => `<tr title="${esc(x.detail)}"><td>${esc(x.name)}</td><td class="${x.u > 1 ? "fail" : ""}">${fmt(x.star)}</td><td>${fmt(x.cap)}</td></tr>`).join("")}</table>
+      <p class="small-text">G ${fmt(r.G, 2)} kPa, w* ${fmt(r.wu, 2)} kPa. ${r.open.map(esc).join(". ")}${r.open.length ? "." : ""}</p></div>`;
+    }).join("")}
+    <button class="btn small" data-slabact="add">+ Add Bondek slab</button>
+    <p class="small-text">Load supporting beams with a Bondek surface above. Bar extension, crack control and propping are not checked.</p>`;
+}
+
 function projectPanel() {
   return `
     <label class="field">Default top-edge restraint spacing, mm<input type="number" step="100" data-pf-root="defaultLtop" data-k="defaultLtop" data-num="1" value="${esc(project.defaultLtop)}"></label>
@@ -655,6 +684,7 @@ function projectPanel() {
     ${project.surfaces.map((s, i) => `<tr><td>${esc(s.name)}${s.wind ? " ↑" : ""}</td>${["G", "Qf", "Qr"].map(c => `<td><input style="width:50px" type="number" step="0.05" data-sf="${i}" data-sc="${c}" data-k="sf${i}${c}" value="${esc(s[c])}" aria-label="${esc(s.name)} ${c}"></td>`).join("")}</tr>`).join("")}
     </table>
     <p class="small-text">↑ takes wind uplift. Q values are from AS/NZS 1170.1 Tables 3.1 and 3.2. G values are typical allowances; change them to suit the job.</p>
+    ${slabPanel()}
     <h3>Deflection limits, [G + ψQ]</h3>
     <table class="calc"><tr><th>Use</th><th>Span /</th><th>Max mm</th></tr>
     ${Object.keys(project.uses).map(k => `<tr><td>${esc(project.uses[k].label)}</td><td><input style="width:56px" type="number" data-use="${k}" data-uc="spanOver" data-k="u${k}s" value="${esc(project.uses[k].spanOver)}" aria-label="Span ratio"></td><td><input style="width:50px" type="number" data-use="${k}" data-uc="maxMm" data-k="u${k}m" value="${esc(project.uses[k].maxMm || "")}" aria-label="Maximum mm"></td></tr>`).join("")}
@@ -682,6 +712,7 @@ function onSideChange(evt) {
   if (t.dataset.ftg) { project.footing.type = t.dataset.ftg; update(); return; }
   if (t.dataset.br) { const pg = project.pages[Number(t.dataset.bp)]; pg.bracing = pg.bracing || {}; pg.bracing[t.dataset.br] = Number(t.value) || 0; update(); return; }
   const val = t.type === "checkbox" ? t.checked : t.type === "number" || t.dataset.num ? (t.value === "" ? 0 : Number(t.value)) : t.value;
+  if (t.dataset.slab != null) { project.slabs[Number(t.dataset.slab)][t.dataset.sl] = t.dataset.sl === "tag" || t.type === "checkbox" ? val : t.value === "" ? "" : Number(t.value); update(); return; }
   if (t.dataset.pfRoot) { project[t.dataset.pfRoot] = val; update(); return; }
   if (t.dataset.sf != null) { project.surfaces[Number(t.dataset.sf)][t.dataset.sc] = val; update(); return; }
   if (t.dataset.use) { project.uses[t.dataset.use][t.dataset.uc] = val; update(); return; }
@@ -704,6 +735,13 @@ function onSideChange(evt) {
 function onSideClick(evt) {
   const pick = evt.target.closest("[data-pick]");
   if (pick) { selected = pick.dataset.pick; setTab("member"); update(); return; }
+  const sb = evt.target.closest("[data-slabact]");
+  if (sb) {
+    project.slabs = project.slabs || [];
+    if (sb.dataset.slabact === "add") project.slabs.push({ tag: `S${project.slabs.length + 1}`, D: 140, span: 4, db: 16, spacing: 150, cover: 20, continuous: true });
+    else project.slabs.splice(Number(sb.dataset.i), 1);
+    update(); return;
+  }
   const b = evt.target.closest("[data-act]");
   if (!b) return;
   const act = b.dataset.act, i = Number(b.dataset.i), el = selected && elById(selected);
@@ -821,7 +859,7 @@ async function loadProjectFile(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch (e) { alert("That file is not a saved project."); return; }
   if (!data.project || !data.doc) { alert("That file is not a saved project."); return; }
-  project = { ...defaultProject(), ...data.project };
+  project = fromSaved(data.project);
   await loadDocument(data.doc.kind, data.doc.name, data.doc.bytes ? b64decode(data.doc.bytes) : null, data.doc.mime);
   undoStack.length = 0;
   afterDocLoad();
@@ -832,7 +870,7 @@ async function restoreAutosave() {
   try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY)); } catch (e) { return; }
   if (!saved || !saved.project || !saved.project.elements.length) return;
   if (saved.docKind === "blank") {
-    project = { ...defaultProject(), ...saved.project };
+    project = fromSaved(saved.project);
     await loadDocument("blank", saved.docName);
     afterDocLoad();
   } else {
@@ -851,7 +889,7 @@ async function restoreAutosave() {
       await loadDocument(f.type === "application/pdf" || /\.pdf$/i.test(f.name) ? "pdf" : "image", f.name, bytes, f.type);
       if (docInfo.dims.length !== saved.project.pages.length) { alert("This file has a different number of pages from the saved mark-up, so it was not restored."); docInfo = null; return; }
       box.remove();
-      project = { ...defaultProject(), ...saved.project };
+      project = fromSaved(saved.project);
       afterDocLoad();
     };
   }
@@ -977,6 +1015,15 @@ function bracingReport() {
   return `<h2>Bracing</h2><table><tr><th>Page</th><th>Direction</th><th>Racking kN</th><th>Capacity kN</th><th>Max gap m</th><th class="l">Walls</th></tr>${br.flatMap(b => [["X", b.x], ["Y", b.y]].map(([d, v]) => `<tr><td>${b.page + 1}</td><td>${d}</td><td>${fmt(v.F)}</td><td class="${v.ok ? "" : "fail"}">${fmt(v.cap)}</td><td>${fmt(v.gap)}</td><td class="l">${esc(v.items.map(i => i.tag).join(", "))}</td></tr>`)).join("")}</table>`;
 }
 
+function slabReport() {
+  if (!(project.slabs || []).length) return "";
+  return `<h2>Bondek slabs</h2>${project.slabs.map(s => {
+    const r = checkBondek(s);
+    return `<div class="member"><h3>${esc(s.tag)}: ${esc(s.D)} mm, span ${fmt(Number(s.span), 2)} m (${r.fails ? "FAIL" : r.ok ? "PASS" : "INCOMPLETE"})</h3><p>G ${fmt(r.G, 2)} kPa, Q ${fmt(r.Q, 2)} kPa, w* ${fmt(r.wu, 2)} kPa.${r.open.length ? " Open: " + r.open.map(esc).join("; ") + "." : ""}</p>
+      <table><tr><th>Check</th><th>Action</th><th>Capacity</th><th class="l">Basis</th></tr>${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td>${fmt(x.star)}</td><td>${fmt(x.cap)}</td><td class="l">${esc(x.detail)}</td></tr>`).join("")}</table></div>`;
+  }).join("")}`;
+}
+
 function buildReport() {
   const rows = scheduleRows();
   const members = project.elements.filter(e => ["beam", "column", "footing", "wall"].includes(e.type)).map(el => {
@@ -985,7 +1032,7 @@ function buildReport() {
     const head = `<h2>${esc(el.tag)}: ${esc(r.name)} (${r.ok ? "PASS" : "FAIL"}, ${fmt(r.util * 100, 0)}%)</h2>`;
     if (el.type === "beam") {
       return `<div class="member">${head}
-        <p>Span ${fmt(r.L, 2)} m ${el.support === "cant" ? "cantilever" : "simply supported"}. Line loads, kN/m incl. self-weight: G ${fmt(r.w.G, 2)}, Q floor ${fmt(r.w.Qf, 2)}, Q roof ${fmt(r.w.Qr, 2)}, uplift ${fmt(r.w.Wu, 2)}.
+        <p>Span ${fmt(r.L, 2)} m ${el.support === "cant" ? "cantilever" : "simply supported"}. Line loads, kN/m incl. self-weight: G ${fmt(r.w.G, 2)}, Q floor ${fmt(r.w.Qf, 2)}, Q roof ${fmt(r.w.Qr, 2)}, uplift ${fmt(r.w.Wu, 2)}.${Number(el.archKpa) > 0 && el.support !== "cant" ? ` Masonry over, 45° triangle at ${fmt(el.archKpa, 1)} kPa.` : ""}
         ${r.points.length ? "Point loads: " + r.points.map(p => `${esc(p.label)} at ${fmt(p.x, 2)} m (G ${fmt(p.vec.G)}, Qf ${fmt(p.vec.Qf)}, Qr ${fmt(p.vec.Qr)}, W ${fmt(p.vec.Wu)})`).join("; ") + "." : ""}</p>
         <table><tr><th>Combination</th><th>M* kNm</th><th>φM kNm</th><th>V* kN</th><th>φV kN</th><th class="l">Basis</th></tr>
         ${r.rows.map(x => `<tr><td>${esc(x.name)}</td><td>${fmt(x.M)}</td><td>${fmt(x.phiM)}</td><td>${fmt(x.V)}</td><td>${fmt(x.phiV)}</td><td class="l">${esc(x.detail)}</td></tr>`).join("")}</table>
@@ -1008,6 +1055,7 @@ function buildReport() {
     <table><tr><th>Tag</th><th class="l">Section</th><th>Span/ht</th><th>End 1</th><th>End 2</th><th>Uplift</th><th>M*/φM</th><th>V*/φV</th><th>δ/limit</th><th>Util</th></tr>
     ${rows.map(r => `<tr><td>${esc(r.tag)}</td><td class="l">${esc(r.section)}</td><td>${r.span}</td><td>${r.R1}</td><td>${r.R2}</td><td>${r.uplift}</td><td>${r.M}</td><td>${r.V}</td><td>${r.defl}</td><td class="${r.ok ? "" : "fail"}">${r.util == null ? "–" : fmt(r.util * 100, 0) + "%"}</td></tr>`).join("")}</table>
     ${bracingReport()}
+    ${slabReport()}
     ${members}
     <div class="disclaimer">Preliminary design aid. Actions to AS/NZS 1170.0 and 1170.1, wind to AS 4055, steel to AS 4100:2020, timber to AS 1720.1, masonry to AS 3700:2018, bracing to AS 1684.2, footings selected under AS 2870. Results must be verified and certified by a qualified structural engineer. Connections, bearing, downward wind, shear distribution, diaphragm action, tie design and footing reinforcement design are not checked.</div>`;
 }

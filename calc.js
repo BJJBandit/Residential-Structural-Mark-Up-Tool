@@ -66,15 +66,44 @@ function rhsSection(d, b, t) {
   };
 }
 
+// Flat laid flat under masonry, bending about its weak axis, so no lateral buckling
+function flatSection(b, t) {
+  const A = b * t, Ix = b * t ** 3 / 12;
+  return {
+    name: `${b}x${t} FL`, family: "Flat", shape: "flat", restrained: true, mass: A * 7850e-6, d: t, b, t, A, Ix, Iy: t * b ** 3 / 12,
+    Zx: Ix / (t / 2), Sx: b * t * t / 4, J: b * t ** 3 / 3, Iw: 0, fy: fyHotRolled(t), fyw: fyHotRolled(t), E: 200000, alphaB: 1,
+    Aw: b * t, flangeOutstand: 0, webClear: t, tf: t, tw: b
+  };
+}
+
+// Angle with the horizontal leg carrying masonry, about the horizontal axis, no root radii
+function angleSection(d, b, t) {
+  const hz = b - t, A = d * t + hz * t, y = (d * t * d / 2 + hz * t * t / 2) / A;
+  const Ix = t * d ** 3 / 12 + d * t * (d / 2 - y) ** 2 + hz * t ** 3 / 12 + hz * t * (y - t / 2) ** 2;
+  return {
+    name: `${d}x${b}x${t} ${d === b ? "EA" : "UA"}`, family: "Angle", shape: "angle", restrained: true, mass: A * 7850e-6, d, b, t, A, Ix, Iy: Ix,
+    Zx: Ix / Math.max(y, d - y), Sx: 0, J: (d + hz) * t ** 3 / 3, Iw: 0, fy: fyHotRolled(t), fyw: fyHotRolled(t), E: 200000, alphaB: 0.5,
+    Aw: d * t, flangeOutstand: d - t, webClear: d - t, tf: t, tw: t
+  };
+}
+
 const SECTIONS = {};
 STEEL_UB.forEach(r => { SECTIONS[r[0]] = iSection(r[0], r[1], r[2], r[3], r[4], r[5], r[6], "UB"); });
 STEEL_UC.forEach(r => { SECTIONS[r[0]] = iSection(r[0], r[1], r[2], r[3], r[4], r[5], r[6], "UC"); });
 STEEL_PFC.forEach(r => { SECTIONS[r[0]] = pfcSection(r[0], r[1], r[2], r[3], r[4], r[5], r[6]); });
 STEEL_RHS.forEach(r => { const s = rhsSection(r[0], r[1], r[2]); SECTIONS[s.name] = s; });
+STEEL_FLAT.forEach(r => { const s = flatSection(r[0], r[1]); SECTIONS[s.name] = s; });
+STEEL_ANGLE.forEach(r => { const s = angleSection(r[0], r[1], r[2]); SECTIONS[s.name] = s; });
 
 // AS 4100 Cl 5.2: effective section modulus
 function steelZe(s) {
   const k = Math.sqrt(s.fy / 250);
+  if (s.shape === "flat") return { Ze: Math.min(s.Sx, 1.5 * s.Zx), cls: "compact" };
+  if (s.shape === "angle") {
+    // Elastic modulus only, reduced for a slender vertical leg with its toe in compression
+    const le = s.flangeOutstand / s.t * k;
+    return { Ze: s.Zx * Math.min(1, 16 / le), cls: le <= 16 ? "elastic" : "slender" };
+  }
   const hollow = s.shape === "RHS";
   const lf = s.flangeOutstand / s.tf * k;
   const lep = hollow ? 30 : 9, ley = hollow ? 40 : 16;
@@ -93,6 +122,7 @@ function steelZe(s) {
 // AS 4100 Cl 5.6.1.1(a): member moment capacity
 function steelMb(s, Le, alphaM) {
   const Ze = steelZe(s).Ze, Ms = s.fy * Ze;
+  if (s.restrained) return { Ms: 0.9 * Ms * 1e-6, Mb: 0.9 * Ms * 1e-6, alphaS: 1, Mo: Infinity };
   const G = 80000, pi2 = Math.PI ** 2;
   const Mo = Math.sqrt(pi2 * s.E * s.Iy / (Le * Le) * (G * s.J + pi2 * s.E * s.Iw / (Le * Le)));
   const r = Ms / Mo;
@@ -212,6 +242,17 @@ function shape(L, cant, udl, points) {
 }
 
 // Double integration of M: returns peak deflection per unit 1/EI (kN.m^3)
+// Symmetric triangle of masonry over a lintel, 45 degrees from each end, added to the G shape
+function addArchLoad(sh, L, kPa) {
+  const peak = kPa * L / 2;
+  for (let i = 0; i <= STATIONS; i++) {
+    const x = L * i / STATIONS, u = Math.min(x, L - x);
+    sh.M[i] += peak * L * u / 4 - peak * u ** 3 / (3 * L);
+    sh.V[i] += (x <= L / 2 ? 1 : -1) * (peak * L / 4 - peak * u * u / L);
+  }
+  sh.R.r1 += peak * L / 4; sh.R.r2 += peak * L / 4;
+}
+
 function deflShape(M, L, cant) {
   const n = STATIONS, h = L / n, th = new Float64Array(n + 1), y = new Float64Array(n + 1);
   for (let i = 1; i <= n; i++) th[i] = th[i - 1] - (M[i - 1] + M[i]) / 2 * h;
@@ -241,6 +282,7 @@ function analyseBeam(el, L, loadsVec, pointLoads, project) {
   COMPONENTS.forEach(c => {
     shapes[c] = shape(L, cant, w[c], pointLoads.map(p => ({ x: p.x, P: p.vec[c] || 0 })));
   });
+  if (!cant && Number(el.archKpa) > 0) addArchLoad(shapes.G, L, Number(el.archKpa));
   const hasFloor = w.Qf > 0 || pointLoads.some(p => p.vec.Qf > 0);
   const hasRoof = w.Qr > 0 || pointLoads.some(p => p.vec.Qr > 0);
   const concP = hasFloor ? 1.8 : 1.1;
@@ -268,7 +310,7 @@ function analyseBeam(el, L, loadsVec, pointLoads, project) {
       const am = (!cant && !hasPts && Lr >= L * 1000 - 1) ? 1.13 : 1.0;
       const r = steelMb(m, Math.max(Lr, 1) * kl, am);
       phiM = r.Mb; phiV = vu;
-      detail = `Le = ${(Lr * kl / 1000).toFixed(2)} m, am = ${am}, as = ${r.alphaS.toFixed(2)}, phiMs = ${r.Ms.toFixed(1)} kNm`;
+      detail = m.restrained ? `Assumed continuously restrained by masonry, phiMs = ${r.Ms.toFixed(2)} kNm` : `Le = ${(Lr * kl / 1000).toFixed(2)} m, am = ${am}, as = ${r.alphaS.toFixed(2)}, phiMs = ${r.Ms.toFixed(1)} kNm`;
     } else {
       const k = k12Beam(m, Lr, topComp);
       phiM = m.phi * c.k1 * k.k12 * m.fb * m.Zx * 1e-6;
@@ -323,6 +365,7 @@ function checkColumn(el, N, project) {
   const h = Number(el.height) || 2.7, Nstar = factoredReaction(N), up = upliftReaction(N);
   const m = memberProps(el, project.timberGrades, 1);
   if (!m) return { error: "Choose a section" };
+  if (m.restrained) return { error: "Flats and angles are lintel sections. Choose a column section." };
   const rows = [];
   if (m.kind === "steel") {
     const c = steelColumn(m, h, Number(el.ke) || 1);
@@ -338,6 +381,32 @@ function checkColumn(el, N, project) {
   }
   const util = rows.reduce((a, b) => Math.max(a, b.u), 0);
   return { type: "column", name: m.name, N, Nstar, up, rows, util, ok: util <= 1, h, m };
+}
+
+// One-way Bondek strip, per metre width. Top bars use a rectangular stress block (AS 3600:2018 Cl 8.1).
+// Composite sagging capacity and deflection are proprietary, so they are compared with entered supplier values.
+function checkBondek(s) {
+  const D = Number(s.D) || 0, L = Number(s.span) || 0, Q = s.Q === "" || s.Q == null ? 1.5 : Number(s.Q), sup = s.Gsup === "" || s.Gsup == null ? 0.15 : Number(s.Gsup);
+  const fc = Number(s.fc) || 25, db = Number(s.db) || 0, sp = Number(s.spacing) || 0, cover = Number(s.cover) || 20, continuous = s.continuous !== false;
+  const G = 25 * D / 1000 + 0.10 + sup, wu = Math.max(1.35 * G, 1.2 * G + 1.5 * Q);
+  const rows = [], open = [];
+  if (continuous) {
+    const Ast = sp > 0 ? Math.PI * db * db / 4 * 1000 / sp : 0, d = D - cover - db / 2;
+    const a2 = Math.max(0.67, 0.85 - 0.0015 * fc), gamma = Math.max(0.67, 0.97 - 0.0025 * fc);
+    const a = Ast * 500 / (a2 * fc * 1000), ku = d > 0 ? a / (gamma * d) : 1;
+    const phiM = 0.8 * Ast * 500 * (d - a / 2) * 1e-6, Mh = wu * L * L / 8;
+    rows.push({ name: "Hogging over support", star: Mh, cap: phiM, u: phiM > 0 ? Mh / phiM : Infinity, detail: `wL²/8, Ast ${Ast.toFixed(0)} mm²/m, d ${d.toFixed(0)} mm, ku ${ku.toFixed(2)}, φ 0.8` });
+    const fct = 0.6 * Math.sqrt(fc), AstMin = 0.24 * (D / d) ** 2 * fct / 500 * 1000 * d;
+    rows.push({ name: "Minimum top steel", star: AstMin, cap: Ast, u: Ast > 0 ? AstMin / Ast : Infinity, detail: "AS 3600 Cl 9.1.1, mm²/m" });
+    if (ku > 0.36) rows.push({ name: "Ductility, ku", star: ku, cap: 0.36, u: ku / 0.36, detail: "ku at or below 0.36" });
+  }
+  const Ms = wu * L * L / (continuous ? 11 : 8), phiS = Number(s.phiMsup) || 0, maxSpan = Number(s.maxSpan) || 0;
+  if (phiS) rows.push({ name: "Sagging, supplier capacity", star: Ms, cap: phiS, u: Ms / phiS, detail: continuous ? "wL²/11" : "wL²/8" });
+  else open.push(`Sagging M* ${Ms.toFixed(1)} kNm/m: enter the supplier's composite capacity`);
+  if (maxSpan) rows.push({ name: "Span, supplier table", star: L, cap: maxSpan, u: L / maxSpan, detail: "Deflection and propping per supplier" });
+  else open.push("Enter the supplier's maximum span to cover deflection and propping");
+  const util = rows.reduce((a, b) => Math.max(a, b.u), 0);
+  return { G, Q, wu, rows, open, util, ok: util <= 1 && !open.length, fails: util > 1 };
 }
 
 function checkFooting(el, N, project) {

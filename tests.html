@@ -132,6 +132,32 @@ row("Column check sees kf = 1", cl.rows[0].detail.includes("kf = 1.00"), true, c
 const can = solveAll({ ...proj, elements: [{ id: "c", tag: "C", type: "beam", page: 0, x1: 0, y1: 0, x2: 300, y2: 0, mat: "steel", sec: "200UB25.4", use: "floor", support: "cant", loads: [{ surface: "floor-timber", width: 1 }] }] }).results.c;
 row("Cantilever Le = 2 x 3 m", can.rows[0].detail.slice(0, 10), "Le = 6.00", can.rows[0].detail.startsWith("Le = 6.00"));
 
+{
+// Lintel sections, hand calcs from dimensions
+const fl = SECTIONS["75x10 FL"];
+near("75x10 FL Ix laid flat", fl.Ix, 6250, 0.001); near("75x10 FL Ze = S", steelZe(fl).Ze, 1875, 0.001);
+const ua = SECTIONS["100x75x8 UA"];
+near("100x75x8 UA A", ua.A, 1336, 0.001); near("100x75x8 UA Ix", ua.Ix, 1.3487e6, 0.001); near("100x75x8 UA Ze elastic", steelZe(ua).Ze, 19700, 0.002);
+near("Angle has no LTB reduction", steelMb(ua, 3000, 1).Mb, 0.9 * 320 * ua.Zx * 1e-6, 0.001);
+const lintelOf = (sec, Lm) => ({ id: "l", tag: "L", type: "beam", page: 0, x1: 0, y1: 0, x2: Lm * 100, y2: 0, mat: "steel", sec, use: "lintel", support: "ss", loads: [], archKpa: 2 });
+const lt = solveAll({ ...proj, elements: [lintelOf("150x100x10 UA", 3)] }).results.l;
+const wp = 2 * 3 / 2, swL = lt.swKnPerM, ltI = SECTIONS["150x100x10 UA"].Ix;
+near("Triangle reaction wL/4 + self-weight", lt.r1.G, wp * 3 / 4 + swL * 3 / 2, 0.001);
+near("Triangle M* 1.35(wL²/12 + swL²/8)", lt.Mstar, 1.35 * (wp * 9 / 12 + swL * 9 / 8), 0.002);
+near("Triangle deflection wL⁴/120EI + 5wL⁴/384EI", Math.abs(lt.dPeak), (wp / 120 + 5 * swL / 384) * 81 * 1e12 / (2e5 * ltI), 0.002);
+row("Angle rejected as a column", checkColumn({ mat: "steel", sec: "100x75x8 UA", height: 2.4 }, zeroVec(), proj).error ? "error" : "ok", "error", !!checkColumn({ mat: "steel", sec: "100x75x8 UA", height: 2.4 }, zeroVec(), proj).error);
+row("Lightest stays in the angle family", SECTIONS[autoSize(lintelOf("150x100x10 UA", 3), { ...proj, elements: [lintelOf("150x100x10 UA", 3)] }).sec].family, "Angle", SECTIONS[autoSize(lintelOf("150x100x10 UA", 3), { ...proj, elements: [lintelOf("150x100x10 UA", 3)] }).sec].family === "Angle");
+
+// Bondek strip: 140 mm, N16 at 150, 20 cover, 5.08 m, hand calc
+const bd = checkBondek({ D: 140, span: 5.08, db: 16, spacing: 150, cover: 20 });
+near("Bondek G", bd.G, 3.75, 0.001); near("Bondek w*", bd.wu, 6.75, 0.001);
+near("Bondek hogging M*", bd.rows[0].star, 21.77, 0.002); near("Bondek hogging capacity", bd.rows[0].cap, 51.2, 0.01);
+row("Bondek without supplier data is incomplete", bd.ok, false, bd.ok === false && bd.open.length === 2);
+const bd2 = checkBondek({ D: 140, span: 5.08, db: 16, spacing: 150, cover: 20, phiMsup: 20, maxSpan: 5.5 });
+near("Bondek sagging M* wL²/11", bd2.rows.find(x => x.name.startsWith("Sagging")).star, 15.83, 0.002);
+row("Bondek complete and passing", bd2.ok, true, bd2.ok === true);
+}
+
 document.getElementById("sum").innerHTML = `<b class="${fails ? "f" : "p"}">${total - fails} / ${total} passed</b>`;
 document.title = fails ? "FAIL " + fails : "PASS " + total;
 </script>

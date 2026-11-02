@@ -88,6 +88,10 @@ combinations. Beam ends that land on nothing are reported as reactions, for exam
 **Steel (AS 4100:2020)**: section classification and Ze, member moment capacity with αm and αs, shear,
 and axial compression with kf and αc. Default sections use 300PLUS; hollow sections use C450.
 
+**Steel lintels (AS 4100:2020)**: flats laid flat and angles with the horizontal leg under the masonry. They are treated as continuously restrained by the masonry, so no lateral buckling applies. Angles use the elastic modulus about the horizontal axis, reduced for a slender leg. Eccentric loading, torsion, temporary propping and bearing are not checked. The masonry field adds a 45° triangle of masonry, which relies on arching; otherwise add the full height as a load width.
+
+**Bondek slabs**: surface presets for loads, plus a one-way strip on the Loads tab. Top bars over a continuous support use wL²/8 and an AS 3600:2018 stress block with φ 0.8, and minimum steel to Cl 9.1.1. Composite sagging capacity, deflection and propping are the supplier's, so enter them from the current Bondek tables. The slab stays Incomplete until you do. AS 3600 was not among the supplied standards, so check those clauses. Bar extension, crack control, fire and concentrated loads are not checked.
+
 **Timber walls (AS 1720.1)**: stud compression, and wind with axial load to Equations 3.5(1) and 3.5(2),
 and wind deflection. Point loads share over the number of studs you set.
 
@@ -117,7 +121,8 @@ weight (0.9 × 24 kN/m³). Reports the size needed. No reinforcement design.
 - AS 2870 Figures 3.1, 3.4 and 3.6 and AS 4055 Tables 5.1 to 5.13 are deliberately not reproduced in this
   public repository. Read those values from your licensed copy.
 - Steel properties are calculated from section dimensions and tested against a sample of tabulated
-  values. Section dimensions were not checked against a current catalogue.
+  values. Flats and angles are calculated without root radii and tested by hand calculation only. Section
+  dimensions were not checked against a current catalogue.
 - **The LVL13 grade is a placeholder.** Replace it with your supplier's data.
 - Surface G values and the net Cp are typical allowances, not standard values.
 
@@ -138,7 +143,7 @@ Preliminary design aid. All results must be verified and certified by a qualifie
 - PFCs are treated as loaded through the shear centre. Check eccentric loading by hand.
 - Balcony edge load of 1.5 kN/m and earthquake actions are not included.
 - Sloped members use their plan span, so rafter deflection is understated on steep roofs. Hips and valleys
-  are not modelled. Veneer above a lintel is not added automatically; add it as a load width.
+  are not modelled. Masonry above a lintel is only added when you enter it on the member.
 - Wall loads are shared uniformly along the wall. Openings, lintels and jamb studs need their own members.
 - Racking is shared by capacity only. Diaphragms, torsion and bracing wall connections are not checked.
 - Masonry is unreinforced, one-way, solid or cored, with no engaged piers. Two-way bending (Cl 7.4.4),
