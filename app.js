@@ -191,6 +191,8 @@ function svgEl(name, attrs, parent, text) {
 function planLabel(el) {
   const r = solved.results[el.id];
   const sec = r && !r.error ? r.name : "?";
+  // Repeated drafted items sit close together, so the schedule carries their size
+  if (el.kind === "pad" || el.kind === "post") return el.tag;
   return `${el.tag} ${sec}`;
 }
 
@@ -655,6 +657,83 @@ function footingPanel(el) {
     <p style="margin-top:.8rem"><button class="btn danger" data-act="delete">Delete footing</button></p>`;
 }
 
+// Reads the whole set, replaces any earlier draft and sizes each new member
+async function runDraft() {
+  if (!docInfo || docInfo.kind !== "pdf") return;
+  setHint("Reading the plans...");
+  const pages = [];
+  for (let i = 1; i <= docInfo.pdf.numPages; i++) pages.push(await readPlanPage(await docInfo.pdf.getPage(i)));
+  const infos = pages.map(planInfo), plans = infos.map((inf, i) => ({ inf, i })).filter(x => x.inf.isPlan);
+  if (!plans.length) { alert("No floor plan with opening tags such as A1218 was found. Draw this set by hand."); update(); return; }
+  pushUndo();
+  const f = readSetFacts(pages), general = [];
+  const adopt = (key, val, label) => { if (!project[key] && val) { project[key] = val; general.push(`${label} read from the drawings. Confirm in Review.`); } };
+  adopt("roofType", f.roofType, "Roofing"); adopt("construction", f.construction, "Wall construction");
+  if (f.roofFrame && f.roofFrame !== project.roofFrame) { project.roofFrame = f.roofFrame; general.push(`${f.roofFrame} read from the drawings. Confirm in Review.`); }
+  if (!project.roofForm) { project.roofForm = "Gable"; general.push("Roof form assumed to be Gable. Change it in Review and redraft if not."); }
+  if (!project.roofType) { project.roofType = "roof-sheet"; general.push("Roofing not found, so a sheet roof is assumed."); }
+  if (f.pitches.length > 1) general.push(`Drawings give several pitches: ${f.pitches.join("°, ")}°. Confirm them.`);
+  general.push(`Wind class ${project.windClass} and site class ${project.siteClass} come from Review, not the drawings. Confirm them first.`);
+  general.push("Interior bracing walls, connections, footings and any girder trusses are not drafted.");
+  project.elements = project.elements.filter(e => !e.draft);
+  refreshProjectDerived();
+
+  const report = [], made = [], hasUpper = plans.some(p => p.inf.level === "upper");
+  plans.forEach(({ inf, i }) => {
+    const scale = inf.scale || 100;
+    project.pages[i].mmPerPt = PT_TO_MM * scale; project.pages[i].ratio = String(scale);
+    const res = draftPlan(pages[i], inf, PT_TO_MM * scale, {
+      eave: f.eave || 0.45, form: project.roofForm, roof: project.roofType, roofFrame: project.roofFrame, grade: "F17", wallType: wallDefault(),
+      wallH: inf.ceiling || Number(project.wallH) || 2.4, floorAbove: inf.level === "ground" && hasUpper, floorSurface: f.bondek ? "bondek-140" : "floor-timber",
+      lowest: inf.level !== "upper", stripB: (project.footing || {}).width, stripD: (project.footing || {}).depth
+    });
+    if (!inf.scale) res.review.unshift("No scale found on this sheet, so 1:100 is assumed. Calibrate it.");
+    res.elements.forEach(e => { const { code, ...rest } = e; made.push({ id: newId(), page: i, draft: true, ...rest, code }); });
+    report.push({ page: i, scale, level: inf.level === "single" ? "single level" : inf.level, openings: inf.openings.length, placed: res.read.placed || 0, span: res.read.span, review: res.review });
+  });
+
+  project.elements.push(...made);
+  made.forEach(el => { const pick = sizeDraft(el, project); if (pick) Object.assign(el, pick); else if (el.kind !== "post" && el.kind !== "pad") report.find(r => r.page === el.page).review.push(el.kind === "wall" ? "A wall has no passing stud under its load. Set it to masonry or size it by hand; failing walls show in the schedule." : `${el.code || el.kind}: no standard size passes. Size it by hand.`); });
+  tagDrafts(made);
+  placeDraftNotes(plans, f);
+  project.draftReport = { count: made.length, general, plans: report };
+  view.page = plans[0].i; $("pageSel").value = String(view.page); selected = null;
+  setTool("select"); setTab("workflow"); zoomFit(); update();
+  bracingSummary(project, solved.results).forEach(b => {
+    const r = report.find(x => x.page === b.page);
+    if (r && (!b.x.ok || !b.y.ok)) r.review.push(`Bracing falls short on the external walls alone: X ${fmt(b.x.cap, 0)} of ${fmt(b.x.F, 0)} kN, Y ${fmt(b.y.cap, 0)} of ${fmt(b.y.F, 0)} kN. Add internal bracing walls.`);
+  });
+  update();
+}
+
+// One tag for each size, as a framing schedule would have it
+function tagDrafts(made) {
+  const groups = { lintel: "L", outdoorBeam: "VB", floorBeam: "B", post: "C", wall: "W", pad: "F" }, seen = {};
+  const label = el => el.mat === "timber" ? `${el.plies > 1 ? el.plies + "/" : ""}${el.size} ${el.grade}` : el.sec || "";
+  const depth = el => parseSize(el.size || "0").d * (el.plies || 1);
+  ["lintel", "outdoorBeam", "floorBeam", "post"].forEach(kind => {
+    const els = made.filter(e => e.kind === kind), sizes = [...new Set(els.slice().sort((a, b) => depth(a) - depth(b)).map(label))];
+    els.forEach(e => { e.tag = groups[kind] + (sizes.indexOf(label(e)) + 1); });
+  });
+  made.filter(e => e.kind === "wall" || e.kind === "pad").forEach(e => { seen[e.kind] = (seen[e.kind] || 0) + 1; e.tag = groups[e.kind] + seen[e.kind]; });
+  ["beam", "column", "footing", "wall"].forEach(t => { project.counters[t] = Math.max(project.counters[t] || 0, 100); });
+}
+
+// Sheet notes along the top margin, with the schedule an engineer would letter on
+function placeDraftNotes(plans, f) {
+  const veneer = (CONSTRUCTION[project.construction] || {}).eq === "AMV" || (CONSTRUCTION[project.construction] || {}).eq === "MV";
+  const sched = veneer ? masonryLintelSchedule(project) : [];
+  plans.forEach(({ i, inf }) => {
+    const size = docInfo.dims[i], fs = Math.max(size.w, size.h) / 135, x = size.w * 0.035;
+    const lines = [
+      "DRAFT MARK-UP. NOT FOR CONSTRUCTION UNTIL REVIEWED BY THE ENGINEER.",
+      `${inf.level === "upper" ? "FIRST FLOOR" : inf.level === "ground" ? "GROUND FLOOR" : "FLOOR"}: SITE CLASS ${project.siteClass}, WIND ${project.windClass}. ${f.roofFrame === "Trusses" ? "TRUSSES TO MANUFACTURER'S SPECIFICATION." : ""}`,
+      ...(veneer ? [`MASONRY LINTELS: ${sched.map(s => `TO ${s.span} ${s.section}`).join("; ")}. MIN 150 BEARING.`] : [])
+    ];
+    lines.forEach((text, n) => project.elements.push({ id: newId(), page: i, draft: true, type: "note", x, y: size.h * 0.03 + n * fs * 1.5, text }));
+  });
+}
+
 function slabPanel() {
   const num = (i, f, label, v, ph, step) => `<label class="field">${label}<input type="number" step="${step || 1}" data-slab="${i}" data-sl="${f}" data-k="sl${i}${f}" value="${esc(v ?? "")}" placeholder="${ph}"></label>`;
   return `
@@ -735,6 +814,7 @@ function onSideChange(evt) {
 function onSideClick(evt) {
   const pick = evt.target.closest("[data-pick]");
   if (pick) { selected = pick.dataset.pick; setTab("member"); update(); return; }
+  if (evt.target.closest("[data-draft]")) { runDraft().catch(err => { console.error(err); alert("Could not draft from this plan: " + err.message); }); return; }
   const sb = evt.target.closest("[data-slabact]");
   if (sb) {
     project.slabs = project.slabs || [];

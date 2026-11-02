@@ -26,6 +26,7 @@ then browse to http://localhost:8766/. Engine tests are at `/tests.html`.
 | `data.js` | Section dimensions, timber grades, surface loads, wind classes, deflection limits |
 | `calc.js` | Section properties, load path and member checks. No DOM access |
 | `walls.js` | Wind, AS 2870 selection, wall checks, bracing, load path review. No DOM access |
+| `autodraft.js` | Reads plan text and linework, and drafts members from them |
 | `workflow.js` | Review tab steps, wall panel, geotechnical report search |
 | `app.js` | PDF viewer, drawing tools, member panel, schedule, exports |
 | `tests.html` | Browser test page for the engine |
@@ -44,6 +45,18 @@ The Review tab follows the design order. A step is ticked once its information i
    depth and reinforcement from that figure.
 6. **Wall design and bracing**: stud or masonry checks per wall, then racking against bracing capacity
    for each storey and direction.
+
+## Drafting a mark-up from the plans
+
+**Draft mark-up from the plans**, at the top of the Review tab, reads a CAD PDF in the browser and places sized members on the floor plan sheets for you to correct before export. Set the wind and site class first.
+
+- **Reads:** each sheet's scale and ceiling height, opening tags (`A1218` is 1200 high, 1800 wide), external walls from the heaviest solid lines, outdoor areas from labels such as ALFRESCO, steel beam labels such as `250UB` on lower floors, and roofing, framing and wall type from notes.
+- **Places:** a lintel at each opening, perimeter walls with bracing panels in their solid lengths (Type d), outdoor beams at bays up to 3 m with posts and pads, and floor beams at bays up to 4 m with posts. Each item is sized lightest passing, and one tag covers each size. Sheet notes carry a draft warning and a masonry lintel schedule.
+- **Assumes:** the roof spans the short way onto the long walls, half span plus eave on those walls, and only the eave on gable walls. Everything it was unsure of is listed in the Review tab.
+- **Does not draft:** internal bracing walls, ridge beams, girder trusses, connections, tie-downs, retaining walls, slabs or footing reinforcement. Roof loads are not traced between levels.
+- **Limits:** a scan has no text or linework to read. Tags in another format are not recognised, and that sheet is left for manual mark-up. L-shaped houses need their roof direction and load widths checked. Tested on two sets from one builder only.
+
+Redrafting replaces the earlier draft and keeps members you drew yourself. Edits made to drafted members are lost.
 
 ## Drawing
 

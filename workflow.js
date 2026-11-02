@@ -39,6 +39,7 @@ function workflowPanel() {
   const q = Number(p.vhu) ? classForSpeed(Number(p.vhu)) : null;
 
   return `
+  ${draftCard()}
   <details class="step" data-step="site"${open("site")}>${stepHead(1, "Geotechnical report and wind speed", s.site)}
     <label class="field">Project reference<input data-pf-root="ref" data-k="ref" value="${esc(p.ref)}"></label>
     <label class="field">Address<input data-pf-root="address" data-k="address" value="${esc(p.address)}"></label>
@@ -131,6 +132,18 @@ function workflowPanel() {
       </table>`;
     }).join("")}
   </details>`;
+}
+
+function draftCard() {
+  const d = project.draftReport;
+  return `<div class="draft-card">
+    <button class="btn primary block" data-draft="run"${docInfo && docInfo.kind === "pdf" ? "" : " disabled"}>${d ? "Redraft from the plans" : "Draft mark-up from the plans"}</button>
+    <p class="small-text">Reads the floor plans, then places and sizes lintels, walls, outdoor beams and posts. Your own members are kept. It is a starting point to check, and needs a CAD PDF, not a scan.</p>
+    ${d ? `<div class="note"><b>Draft: ${d.count} items on ${d.plans.length} ${d.plans.length === 1 ? "sheet" : "sheets"}. Check before use.</b>
+      ${d.general.length ? `<ul class="draft-list">${d.general.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      ${d.plans.map(pl => `<p class="small-text"><b>Page ${pl.page + 1}, 1:${pl.scale}, ${esc(pl.level)}.</b> ${pl.placed} of ${pl.openings} openings placed${pl.span ? `, roof span ${fmt(pl.span, 1)} m` : ""}.</p>
+      ${pl.review.length ? `<ul class="draft-list">${pl.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}`).join("")}</div>` : ""}
+  </div>`;
 }
 
 function wallPanel(el) {

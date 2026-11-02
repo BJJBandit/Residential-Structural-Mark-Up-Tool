@@ -12,6 +12,7 @@
 <script src="data.js"></script>
 <script src="calc.js"></script>
 <script src="walls.js"></script>
+<script src="autodraft.js"></script>
 <script>
 const near = (name, got, exp, tol = 0.02) => row(name, got, exp, Math.abs(got - exp) <= Math.abs(exp) * tol);
 let fails = 0, total = 0;
@@ -156,6 +157,32 @@ row("Bondek without supplier data is incomplete", bd.ok, false, bd.ok === false 
 const bd2 = checkBondek({ D: 140, span: 5.08, db: 16, spacing: 150, cover: 20, phiMsup: 20, maxSpan: 5.5 });
 near("Bondek sagging M* wL²/11", bd2.rows.find(x => x.name.startsWith("Sagging")).star, 15.83, 0.002);
 row("Bondek complete and passing", bd2.ok, true, bd2.ok === true);
+}
+
+{
+// Auto-draft on a made-up 20 x 10 m house at 1:100: walls, an eave line, a sheet border and a deck
+const mm = 25.4 / 72 * 100, m = v => v * 1000 / mm;
+const rect = (x0, y0, x1, y1, lw) => [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]].map(([x1_, y1_, x2_, y2_]) => ({ x1: x1_, y1: y1_, x2: x2_, y2: y2_, lw }));
+const X0 = 200, Y0 = 200, W = m(20), H = m(10), tag = (s, x, y, vertical) => ({ s, x, y, w: 24, vertical: !!vertical, up: !!vertical });
+const page = { w: 1191, h: 842,
+  segs: [...rect(X0, Y0, X0 + W, Y0 + H, 6), ...rect(X0 - m(0.45), Y0 - m(0.45), X0 + W + m(0.45), Y0 + H + m(0.45), 6), ...rect(30, 30, 1160, 810, 6), { x1: X0, y1: Y0 + H + m(2.5), x2: X0 + m(9), y2: Y0 + H + m(2.5), lw: 1 }],
+  text: [tag("FLOOR PLAN", 800, 780), tag("1:100", 900, 780), tag("CL 2700", 400, 300), tag("A1218", X0 + m(5), Y0 - 6), tag("SD2124", X0 + m(5), Y0 + H + 8), tag("A1209", X0 + W + 8, Y0 + m(5), true), tag("D2109", X0 + m(10), Y0 + m(5), true), tag("ALFRESCO", X0 + m(4), Y0 + H + m(1.2))]
+};
+const info = planInfo(page);
+row("Sheet recognised as a plan", info.isPlan, true, info.isPlan === true);
+near("Scale read from the sheet", info.scale, 100); near("Ceiling read", info.ceiling, 2.7);
+near("A1218 is 1800 wide", parseOpening("A1218").width, 1800); row("Job number is not an opening", parseOpening("J2116"), null, parseOpening("J2116") === null);
+const dr = draftPlan(page, info, mm, { eave: 0.45, form: "Gable", roof: "roof-sheet", roofFrame: "Trusses", grade: "F17", wallType: "timber", wallH: 2.7, floorSurface: "floor-timber", lowest: true });
+near("Roof span ignores the eave line", dr.read.span, 10, 0.01);
+const ls = dr.elements.filter(e => e.kind === "lintel"), lenOf = e => Math.hypot(e.x2 - e.x1, e.y2 - e.y1) * mm / 1000;
+near("Three openings get lintels", ls.length, 3, 0);
+near("Lintel length is the opening plus 100", lenOf(ls.find(e => e.code === "A1218")), 1.9, 0.01);
+near("Bearing wall load width is half span plus eave", ls.find(e => e.code === "A1218").loads[0].width, 5.45, 0.01);
+near("Gable wall load width is the eave", ls.find(e => e.code === "A1209").loads[0].width, 0.45, 0.01);
+row("Internal wall parallel to the span is skipped", dr.review.some(r => r.startsWith("D2109")), true, dr.review.some(r => r.startsWith("D2109")));
+near("Four perimeter walls", dr.elements.filter(e => e.kind === "wall").length, 4, 0);
+near("Deck beam bays no longer than 3 m", dr.elements.filter(e => e.kind === "outdoorBeam").length, 3, 0);
+near("Deck load width", dr.elements.find(e => e.kind === "outdoorBeam").loads[0].width, 1.4, 0.01);
 }
 
 document.getElementById("sum").innerHTML = `<b class="${fails ? "f" : "p"}">${total - fails} / ${total} passed</b>`;
