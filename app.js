@@ -101,8 +101,9 @@ async function loadDocument(kind, name, bytes, mime) {
 }
 
 // Clears the plan, mark-up and every project setting, back to the start page
-function newProject() {
-  if ((project.elements.length || docInfo) && !confirm("Start a new project? The current plan, mark-up and settings will be cleared. Save the project first if you need it.")) return;
+function newProject(force) {
+  // An in-page dialog, because a browser can silently block confirm() and the button would then do nothing
+  if ((project.elements.length || docInfo) && !force) { $("newDialog").returnValue = ""; $("newDialog").showModal(); return; }
   project = defaultProject(); docInfo = null;
   view = { page: 0, zoom: 1 }; selected = null; draft = null; snapPt = null;
   undoStack.length = 0; redoStack.length = 0;
@@ -113,6 +114,7 @@ function newProject() {
   $("fileInput").value = ""; $("loadInput").value = "";
   $("overlay").innerHTML = ""; $("zoomLabel").textContent = "100%";
   setTool("select"); setTab("workflow"); update();
+  setHint("New project started. Open a plan or use a blank sheet.");
 }
 
 function afterDocLoad() {
@@ -1186,7 +1188,8 @@ function init() {
 
   $("fileInput").addEventListener("change", e => { if (e.target.files[0]) openFile(e.target.files[0]).catch(err => { console.error(err); alert("Could not open that file: " + err.message); }); e.target.value = ""; });
   $("loadInput").addEventListener("change", e => { if (e.target.files[0]) loadProjectFile(e.target.files[0]).catch(err => { console.error(err); alert("Could not load that project: " + err.message); }); e.target.value = ""; });
-  $("newBtn").addEventListener("click", newProject);
+  $("newBtn").addEventListener("click", () => newProject());
+  $("newDialog").addEventListener("close", () => { if ($("newDialog").returnValue === "ok") newProject(true); });
   $("blankBtn").addEventListener("click", async () => {
     if (project.elements.length && !confirm("Start a blank sheet and clear the current mark-up?")) return;
     project.elements = []; project.counters = { beam: 0, column: 0, footing: 0 }; project.nextId = 1; undoStack.length = 0;

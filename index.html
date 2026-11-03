@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Residential Structural Mark-Up</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <header class="appbar">
@@ -84,6 +84,13 @@
 
 <div id="report" class="report"></div>
 
+<dialog id="newDialog">
+  <form method="dialog">
+    <h3>Start a new project?</h3>
+    <p>The current plan, mark-up and settings will be cleared. Save the project first if you need it.</p>
+    <div class="dlg-actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Start new project</button></div>
+  </form>
+</dialog>
 <dialog id="calDialog">
   <form method="dialog">
     <h3>Calibrate scale</h3>
@@ -101,13 +108,13 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="data.js"></script>
-<script src="calc.js"></script>
-<script src="walls.js"></script>
-<script src="autodraft.js"></script>
-<script src="sheets.js"></script>
-<script src="workflow.js"></script>
-<script src="app.js"></script>
-<script src="sheetexport.js"></script>
+<script src="data.js?v=3"></script>
+<script src="calc.js?v=3"></script>
+<script src="walls.js?v=3"></script>
+<script src="autodraft.js?v=3"></script>
+<script src="sheets.js?v=3"></script>
+<script src="workflow.js?v=3"></script>
+<script src="app.js?v=3"></script>
+<script src="sheetexport.js?v=3"></script>
 </body>
 </html>
