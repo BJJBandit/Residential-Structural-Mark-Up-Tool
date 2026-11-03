@@ -80,6 +80,7 @@ Redrafting replaces the earlier draft and keeps members you drew yourself. Edits
 
 ## Drawing
 
+- **New project** clears the plan, mark-up and all settings, after asking. Save the project first if you need it. **Open plan** on its own keeps settings such as site class and wind.
 - **Open plan**, or use a blank sheet. Multi-page PDFs are one level per page.
 - **Set the scale** per page from the list, or use **Calibrate** on a known dimension. Scanned or
   re-plotted PDFs should always be calibrated.
