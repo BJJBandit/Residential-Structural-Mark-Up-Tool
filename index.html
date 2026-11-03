@@ -16,6 +16,7 @@
     <button id="saveBtn" class="btn">Save project</button>
     <label class="btn">Load project<input id="loadInput" type="file" accept=".json,application/json" hidden></label>
     <span class="sep"></span>
+    <button id="sheetsBtn" class="btn primary">Export sheet set</button>
     <button id="pdfBtn" class="btn">Export marked-up PDF</button>
     <button id="csvBtn" class="btn">Schedule CSV</button>
     <button id="printBtn" class="btn">Print calcs</button>
@@ -35,6 +36,7 @@
         </select>
       </label>
       <button id="calBtn" class="btn small">Calibrate</button>
+      <label class="field-inline">Show <select id="sheetSel"><option value="">All members</option><option value="path">Load paths</option><option value="roof">Roof framing</option><option value="walls">Wall framing</option><option value="footing">Footings</option><option value="floor">Floor or slab</option></select></label>
       <span id="scaleInfo" class="muted"></span>
       <span class="spacer"></span>
       <button id="zoomOut" class="btn small" aria-label="Zoom out">−</button>
@@ -102,7 +104,9 @@
 <script src="calc.js"></script>
 <script src="walls.js"></script>
 <script src="autodraft.js"></script>
+<script src="sheets.js"></script>
 <script src="workflow.js"></script>
 <script src="app.js"></script>
+<script src="sheetexport.js"></script>
 </body>
 </html>

@@ -192,7 +192,7 @@ function planLabel(el) {
   const r = solved.results[el.id];
   const sec = r && !r.error ? r.name : "?";
   // Repeated drafted items sit close together, so the schedule carries their size
-  if (el.kind === "pad" || el.kind === "post") return el.tag;
+  if (el.kind === "pad" || el.kind === "post" || el.typical) return el.tag;
   return `${el.tag} ${sec}`;
 }
 
@@ -202,7 +202,8 @@ function drawOverlay() {
   const d = docInfo.dims[view.page], fs = fontSize();
   svg.setAttribute("viewBox", `0 0 ${d.w} ${d.h}`);
   svg.innerHTML = "";
-  project.elements.filter(e => e.page === view.page).forEach(el => {
+  const sheet = view.sheet ? currentSheet() : null, shown = sheet ? new Set(sheet.members.map(e => e.id)) : null;
+  project.elements.filter(e => e.page === view.page && (!shown || shown.has(e.id) || (["note", "measure"].includes(e.type) && !e.draft))).forEach(el => {
     const r = solved.results[el.id];
     const bad = r && (r.error || r.ok === false) ? " bad" : "";
     const sel = el.id === selected ? " m-sel" : "";
@@ -246,6 +247,7 @@ function drawOverlay() {
       svgEl("text", { x: el.x, y: el.y, "font-size": fs, class: `m-text note-t${sel}` }, g, el.text);
     }
   });
+  if (sheet) drawSheetExtras(svg, sheet);
   if (draft && draft.x2 != null) svgEl("line", { x1: draft.x1, y1: draft.y1, x2: draft.x2, y2: draft.y2, class: "m-ghost" }, svg);
   if (snapPt) svgEl("circle", { cx: snapPt.x, cy: snapPt.y, r: 7 / view.zoom, class: "m-snap" }, svg);
 }
@@ -674,8 +676,10 @@ async function runDraft() {
   if (!project.roofType) { project.roofType = "roof-sheet"; general.push("Roofing not found, so a sheet roof is assumed."); }
   if (f.pitches.length > 1) general.push(`Drawings give several pitches: ${f.pitches.join("°, ")}°. Confirm them.`);
   general.push(`Wind class ${project.windClass} and site class ${project.siteClass} come from Review, not the drawings. Confirm them first.`);
-  general.push("Interior bracing walls, connections, footings and any girder trusses are not drafted.");
+  general.push("Internal bracing walls, connections, retaining walls and girder trusses are not drafted.");
   project.elements = project.elements.filter(e => !e.draft);
+  project.pages.forEach(pg => { delete pg.draft; });
+  docInfo.planPages = pages;
   refreshProjectDerived();
 
   const report = [], made = [], hasUpper = plans.some(p => p.inf.level === "upper");
@@ -684,16 +688,34 @@ async function runDraft() {
     project.pages[i].mmPerPt = PT_TO_MM * scale; project.pages[i].ratio = String(scale);
     const res = draftPlan(pages[i], inf, PT_TO_MM * scale, {
       eave: f.eave || 0.45, form: project.roofForm, roof: project.roofType, roofFrame: project.roofFrame, grade: "F17", wallType: wallDefault(),
-      wallH: inf.ceiling || Number(project.wallH) || 2.4, floorAbove: inf.level === "ground" && hasUpper, floorSurface: f.bondek ? "bondek-140" : "floor-timber",
+      wallH: inf.ceiling || Number(project.wallH) || 2.4, level: inf.level, floorAbove: inf.level === "ground" && hasUpper, floorSurface: f.bondek ? "bondek-140" : "floor-timber",
       lowest: inf.level !== "upper", stripB: (project.footing || {}).width, stripD: (project.footing || {}).depth
     });
+    project.pages[i].draft = res.read.geom || null;
     if (!inf.scale) res.review.unshift("No scale found on this sheet, so 1:100 is assumed. Calibrate it.");
     res.elements.forEach(e => { const { code, ...rest } = e; made.push({ id: newId(), page: i, draft: true, ...rest, code }); });
     report.push({ page: i, scale, level: inf.level === "single" ? "single level" : inf.level, openings: inf.openings.length, placed: res.read.placed || 0, span: res.read.span, review: res.review });
   });
 
   project.elements.push(...made);
-  made.forEach(el => { const pick = sizeDraft(el, project); if (pick) Object.assign(el, pick); else if (el.kind !== "post" && el.kind !== "pad") report.find(r => r.page === el.page).review.push(el.kind === "wall" ? "A wall has no passing stud under its load. Set it to masonry or size it by hand; failing walls show in the schedule." : `${el.code || el.kind}: no standard size passes. Size it by hand.`); });
+  made.forEach(el => { const pick = sizeDraft(el, project); if (pick) { Object.assign(el, pick); if (pick.blockwork) report.find(r => r.page === el.page).review.push("A lower wall has no passing stud, so it is set to 190 blockwork. Confirm this against the architecturals."); } else if (el.kind !== "post" && el.kind !== "pad" && el.wallType !== "masonry") report.find(r => r.page === el.page).review.push(el.kind === "wall" ? "A wall has no passing stud under its load. Set it to masonry or size it by hand; failing walls show in the schedule." : `${el.code || el.kind}: no standard size passes. Size it by hand.`); });
+  // A wall that passed alone may not once beams land on it
+  const firstPass = solveAll(project).results;
+  made.filter(e => e.kind === "wall" && firstPass[e.id] && firstPass[e.id].ok === false).forEach(e => { const pick = sizeDraft(e, project, true); if (pick) { Object.assign(e, pick); if (pick.blockwork) report.find(r => r.page === e.page).review.push("A lower wall carrying floor beams has no passing stud, so it is set to 190 blockwork. Confirm this against the architecturals."); } });
+  // Pads take the size their column needs, once every load is on them
+  const loaded = solveAll(project).results;
+  made.filter(e => e.kind === "pad").forEach(e => {
+    const r = loaded[e.id];
+    if (!r || r.error) return;
+    const fits = [450, 600, 750, 900, 1050, 1200, 1500].flatMap(side => [300, 400, 500, 600].map(D => ({ B: side, Lf: side, D }))).find(s => checkFooting({ ...e, ...s }, r.N, project).ok);
+    if (fits) Object.assign(e, fits); else report.find(x => x.page === e.page).review.push("A pad needs more than 1500 square by 600 deep. Size it by hand.");
+  });
+  // The footing system and any Bondek strip are chosen once, for the engineer to change in Review
+  const firstOk = footingOptions(project.siteClass, Number(project.bearing) || 0).filter(o => o.ok);
+  const footPick = f.timberFloor && !f.bondek ? firstOk.find(o => o.id === "strip") || firstOk[0] : firstOk[0];
+  if (!(project.footing || {}).type && footPick) { project.footing = { ...(project.footing || {}), type: footPick.id }; general.push(`${footPick.label} chosen for Class ${project.siteClass}. Confirm it in Review and enter its size and reinforcement from AS 2870 ${footPick.ref}.`); }
+  const bondekGaps = plans.flatMap(({ i }) => ((project.pages[i].draft || {}).floor || {}).bondek ? project.pages[i].draft.floor.gaps : []);
+  if (bondekGaps.length && !(project.slabs || []).length) project.slabs = [{ tag: "S1", D: 140, span: Number(Math.max(...bondekGaps.map(x => x.span)).toFixed(2)), db: 16, spacing: 150, cover: 20, continuous: true }];
   tagDrafts(made);
   placeDraftNotes(plans, f);
   project.draftReport = { count: made.length, general, plans: report };
@@ -708,10 +730,10 @@ async function runDraft() {
 
 // One tag for each size, as a framing schedule would have it
 function tagDrafts(made) {
-  const groups = { lintel: "L", outdoorBeam: "VB", floorBeam: "B", post: "C", wall: "W", pad: "F" }, seen = {};
+  const groups = { lintel: "L", outdoorBeam: "VB", floorBeam: "B", post: "C", wall: "W", pad: "F", rafter: "R", ridge: "RB", joist: "J", bearer: "DB" }, seen = {};
   const label = el => el.mat === "timber" ? `${el.plies > 1 ? el.plies + "/" : ""}${el.size} ${el.grade}` : el.sec || "";
   const depth = el => parseSize(el.size || "0").d * (el.plies || 1);
-  ["lintel", "outdoorBeam", "floorBeam", "post"].forEach(kind => {
+  ["lintel", "outdoorBeam", "floorBeam", "post", "rafter", "ridge", "joist", "bearer"].forEach(kind => {
     const els = made.filter(e => e.kind === kind), sizes = [...new Set(els.slice().sort((a, b) => depth(a) - depth(b)).map(label))];
     els.forEach(e => { e.tag = groups[kind] + (sizes.indexOf(label(e)) + 1); });
   });
@@ -1158,6 +1180,8 @@ function init() {
   });
   $("saveBtn").addEventListener("click", saveProject);
   $("pdfBtn").addEventListener("click", () => exportPdf().catch(err => { console.error(err); alert("Export failed: " + err.message); }));
+  $("sheetsBtn").addEventListener("click", () => exportSheets().catch(err => { console.error(err); alert("Export failed: " + err.message); }));
+  $("sheetSel").addEventListener("change", e => { view.sheet = e.target.value; selected = null; update(); });
   $("csvBtn").addEventListener("click", exportCsv);
   $("printBtn").addEventListener("click", () => { buildReport(); window.print(); });
 

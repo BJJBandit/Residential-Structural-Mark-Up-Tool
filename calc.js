@@ -441,7 +441,8 @@ function buildConnections(project) {
   const onBeam = {}, onSupport = {};
   const add = (map, key, item) => { (map[key] = map[key] || []).push(item); };
   const els = project.elements;
-  els.filter(e => e.type === "beam").forEach(b => {
+  // A typical member stands for many at centres, whose load is already in the load widths of what carries them
+  els.filter(e => e.type === "beam" && !e.typical).forEach(b => {
     const mm = mmPerPt(project, b.page), tol = TRANSFER_TOL_MM / mm;
     ends(b).forEach((pt, i) => {
       if (b.support === "cant" && i === 1) return;
@@ -456,7 +457,7 @@ function buildConnections(project) {
       });
       if (wall) { add(onSupport, wall.id, { from: b.id, end: i + 1 }); return; }
       const host = els.find(o => {
-        if (o.type !== "beam" || o.id === b.id || o.page !== b.page) return false;
+        if (o.type !== "beam" || o.typical || o.id === b.id || o.page !== b.page) return false;
         const a = ends(o), p = projectOn(pt, a[0], a[1]);
         if (p.d > tol || p.t < 0 || p.t > 1) return false;
         return p.t * p.len > tol && (1 - p.t) * p.len > tol;

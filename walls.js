@@ -217,7 +217,8 @@ function loadPathRows(project, solved) {
   const referenced = new Set();
   project.elements.forEach(e => (e.points || []).forEach(p => { if (p.src) referenced.add(String(p.src)); }));
   project.elements.forEach(e => {
-    if (e.type === "beam") {
+    if (e.type === "beam" && e.typical) rows.push({ id: e.id, from: e.tag, to: "typical member, repeated" });
+    else if (e.type === "beam") {
       const n = e.support === "cant" ? [1] : [1, 2];
       n.forEach(end => {
         const c = (carriers[e.id] || []).find(x => x.end === end);

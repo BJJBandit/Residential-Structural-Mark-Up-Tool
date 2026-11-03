@@ -13,6 +13,7 @@
 <script src="calc.js"></script>
 <script src="walls.js"></script>
 <script src="autodraft.js"></script>
+<script src="sheets.js"></script>
 <script>
 const near = (name, got, exp, tol = 0.02) => row(name, got, exp, Math.abs(got - exp) <= Math.abs(exp) * tol);
 let fails = 0, total = 0;
@@ -183,6 +184,44 @@ row("Internal wall parallel to the span is skipped", dr.review.some(r => r.start
 near("Four perimeter walls", dr.elements.filter(e => e.kind === "wall").length, 4, 0);
 near("Deck beam bays no longer than 3 m", dr.elements.filter(e => e.kind === "outdoorBeam").length, 3, 0);
 near("Deck load width", dr.elements.find(e => e.kind === "outdoorBeam").loads[0].width, 1.4, 0.01);
+near("Deck rafter spans wall to beam", lenOf(dr.elements.find(e => e.kind === "rafter")), 2.5, 0.02);
+row("Trusses draft no main ridge", dr.elements.some(e => e.kind === "ridge"), false, !dr.elements.some(e => e.kind === "ridge"));
+const panels = bracePanels(0, 100, [{ a: 40, b: 60 }], 100);
+near("Solid wall either side of an opening gives two panels", panels.length, 2, 0);
+near("4 m of solid wall gets a 2400 panel", panels[0].len, 2.4, 0);
+near("Panel is centred in the solid length", (panels[0].a + panels[0].b) / 2, 20, 0.01);
+
+// Sheet set on the same house
+const sp = { ...JSON.parse(JSON.stringify({ surfaces: DEFAULT_SURFACES, uses: DEFAULT_USES, timberGrades: TIMBER_GRADES })), windClass: "N2", siteClass: "M", bearing: 100, construction: "AMV", roofType: "roof-sheet", roofFrame: "Trusses", footing: {}, geo: {}, pages: [{ mmPerPt: mm, draft: dr.read.geom }], windPressure: 0.96 };
+sp.elements = dr.elements.map((e, i) => ({ id: "s" + i, page: 0, tag: (e.kind || "x") + i, ...e }));
+const ss = solveAll(sp);
+const list = sheetList(sp, ss.conn), topics = list.map(s => s.topic);
+row("All five sheets are issued", topics.join(), "path,roof,walls,footing,floor", topics.join() === "path,roof,walls,footing,floor");
+const build = id => buildSheet(sp, ss, list.find(s => s.topic === id), { w: 1190, h: 842 }, page);
+row("Lintels are on the wall sheet, not the roof sheet", build("roof").members.some(e => e.kind === "lintel"), false, build("walls").members.some(e => e.kind === "lintel") && !build("roof").members.some(e => e.kind === "lintel"));
+row("Deck rafters are on the roof sheet", build("roof").members.some(e => e.kind === "rafter"), true, build("roof").members.some(e => e.kind === "rafter"));
+row("Pads are on the footing sheet", build("footing").members.every(e => e.kind === "pad"), true, build("footing").members.length > 0 && build("footing").members.every(e => e.kind === "pad"));
+const footText = build("footing").lines.map(l => l.s).join(" ");
+row("Footing values not entered are asked for, not invented", /ENTER FROM AS 2870/.test(footText), true, /ENTER FROM AS 2870/.test(footText));
+row("Trusses are noted, not sized", /TRUSSES TO MANUFACTURER/.test(build("roof").lines.map(l => l.s).join(" ")), true, /TRUSSES TO MANUFACTURER/.test(build("roof").lines.map(l => l.s).join(" ")));
+const pathSheet = build("path");
+row("Load path sheet shows every member", pathSheet.members.length, sp.elements.length, pathSheet.members.length === sp.elements.length);
+const rep = sp.elements.find(e => e.typical && e.kind === "rafter"), beamUnder = sp.elements.filter(e => e.kind === "outdoorBeam");
+row("A typical rafter adds no point load to the beam it lands on", beamUnder.some(b => (ss.conn.onBeam[b.id] || []).some(c => c.from === rep.id)), false, !beamUnder.some(b => (ss.conn.onBeam[b.id] || []).some(c => c.from === rep.id)));
+
+// Articulation joints
+const aj = articulationJoints(0, 20, [], 6);
+near("20 m wall at 6 m gets three joints", aj.length, 3, 0); near("First joint at the spacing", aj[0], 6, 0);
+near("Joint moves back to an opening edge", articulationJoints(0, 10, [4.5], 6)[0], 4.5, 0);
+row("No joints on a Class S site", articulationApplies({ construction: "AMV", siteClass: "S" }), false, !articulationApplies({ construction: "AMV", siteClass: "S" }));
+row("No joints on clad frame", articulationApplies({ construction: "CF", siteClass: "M" }), false, !articulationApplies({ construction: "CF", siteClass: "M" }));
+row("Joints on veneer on Class M", articulationApplies({ construction: "AMV", siteClass: "M" }), true, articulationApplies({ construction: "AMV", siteClass: "M" }));
+
+// Notes panel avoids what is already drawn
+const occ = occupancy(1000, 800, null, [{ t: "line", x1: 0, y1: 700, x2: 1000, y2: 700 }]);
+const at = clearSpot(occ, 1000, 800, 200, 100);
+row("Notes stay clear of a drawn line", at && at.y + 100 <= 700 || at && at.y > 700, true, !!at && (at.y + 100 <= 690 || at.y >= 700));
+near("Long note wraps to the width", wrapPanel([{ s: "aaaa bbbb cccc dddd" }], 50, 10).length, 2, 0);
 }
 
 document.getElementById("sum").innerHTML = `<b class="${fails ? "f" : "p"}">${total - fails} / ${total} passed</b>`;

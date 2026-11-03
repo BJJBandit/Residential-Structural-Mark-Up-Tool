@@ -84,7 +84,9 @@ function workflowPanel() {
     <div class="grid2">
       <label class="field">Storeys<select data-pf-root="storeys" data-k="storeys" data-num="1">${[1, 2].map(n => opt(n, n, p.storeys)).join("")}</select></label>
       <label class="field">Default wall height, m<input type="number" step="0.1" data-pf-root="wallH" data-k="wallH" data-num="1" value="${esc(p.wallH)}"></label>
+      <label class="field">Articulation joints at, m<input type="number" step="0.5" data-pf-root="ajSpacing" data-k="ajSpacing" data-num="1" value="${esc(p.ajSpacing || "")}" placeholder="6"></label>
     </div>
+    <p class="small-text">The 6 m articulation default is a working value, not read from a standard. Confirm it against AS 4773 for the site class.</p>
     ${eq ? `<p class="small-text">AS 2870 equivalent: <b>${esc(EQ_LABEL[eq])}</b>, differential deflection limit ${DIFF_DEFL[eq][0]} up to ${DIFF_DEFL[eq][1]} mm (Table 4.1). For construction not listed, use Table 3.1.</p>` : ""}
   </details>
 
@@ -138,7 +140,7 @@ function draftCard() {
   const d = project.draftReport;
   return `<div class="draft-card">
     <button class="btn primary block" data-draft="run"${docInfo && docInfo.kind === "pdf" ? "" : " disabled"}>${d ? "Redraft from the plans" : "Draft mark-up from the plans"}</button>
-    <p class="small-text">Reads the floor plans, then places and sizes lintels, walls, outdoor beams and posts. Your own members are kept. It is a starting point to check, and needs a CAD PDF, not a scan.</p>
+    <p class="small-text">Reads the floor plans, then places and sizes lintels, walls, rafters, floor framing, posts and pads. <b>Export sheet set</b> then gives one page each for load paths, roof, walls, footings and floor. Your own members are kept. It is a starting point to check, and needs a CAD PDF, not a scan.</p>
     ${d ? `<div class="note"><b>Draft: ${d.count} items on ${d.plans.length} ${d.plans.length === 1 ? "sheet" : "sheets"}. Check before use.</b>
       ${d.general.length ? `<ul class="draft-list">${d.general.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${d.plans.map(pl => `<p class="small-text"><b>Page ${pl.page + 1}, 1:${pl.scale}, ${esc(pl.level)}.</b> ${pl.placed} of ${pl.openings} openings placed${pl.span ? `, roof span ${fmt(pl.span, 1)} m` : ""}.</p>

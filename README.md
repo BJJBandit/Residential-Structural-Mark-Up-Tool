@@ -27,6 +27,8 @@ then browse to http://localhost:8766/. Engine tests are at `/tests.html`.
 | `calc.js` | Section properties, load path and member checks. No DOM access |
 | `walls.js` | Wind, AS 2870 selection, wall checks, bracing, load path review. No DOM access |
 | `autodraft.js` | Reads plan text and linework, and drafts members from them |
+| `sheets.js` | Builds each mark-up sheet as lines, text and notes. No DOM access |
+| `sheetexport.js` | Previews a sheet over the plan and exports the sheet set |
 | `workflow.js` | Review tab steps, wall panel, geotechnical report search |
 | `app.js` | PDF viewer, drawing tools, member panel, schedule, exports |
 | `tests.html` | Browser test page for the engine |
@@ -53,10 +55,28 @@ The Review tab follows the design order. A step is ticked once its information i
 - **Reads:** each sheet's scale and ceiling height, opening tags (`A1218` is 1200 high, 1800 wide), external walls from the heaviest solid lines, outdoor areas from labels such as ALFRESCO, steel beam labels such as `250UB` on lower floors, and roofing, framing and wall type from notes.
 - **Places:** a lintel at each opening, perimeter walls with bracing panels in their solid lengths (Type d), outdoor beams at bays up to 3 m with posts and pads, and floor beams at bays up to 4 m with posts. Each item is sized lightest passing, and one tag covers each size. Sheet notes carry a draft warning and a masonry lintel schedule.
 - **Assumes:** the roof spans the short way onto the long walls, half span plus eave on those walls, and only the eave on gable walls. Everything it was unsure of is listed in the Review tab.
-- **Does not draft:** internal bracing walls, ridge beams, girder trusses, connections, tie-downs, retaining walls, slabs or footing reinforcement. Roof loads are not traced between levels.
-- **Limits:** a scan has no text or linework to read. Tags in another format are not recognised, and that sheet is left for manual mark-up. L-shaped houses need their roof direction and load widths checked. Tested on two sets from one builder only.
+- **Also places:** rafters at 900 centres with a ledger on any outdoor roof; a ridge beam, posts and rafters on a raked roof; floor joists, or a Bondek slab where the set names it; timber deck joists and a bearer; and pads under posts on the lowest level, sized to pass. A lower wall with no passing stud becomes 190 blockwork, as does a wall with a block label beside it. Strips widen to suit bearing unless a width is entered in Review.
+- **Does not draft:** internal bracing walls, girder trusses, connections, tie-downs or retaining walls. Upper and lower levels are not linked, so roof and wall loads from above are noted, not traced.
+- **Limits:** a scan has no text or linework to read. Tags in another format are not recognised, and that sheet is left for manual mark-up. L-shaped houses need their roof direction and load widths checked, and a deck in the notch of one may be flagged for drawing by hand. Tested on two real sets only.
 
 Redrafting replaces the earlier draft and keeps members you drew yourself. Edits made to drafted members are lost.
+
+## Mark-up sheets
+
+**Export sheet set** gives a PDF with one drawing per topic and level, each on a copy of the architect's plan sheet, followed by the member schedule. **Show**, above the plan, previews any sheet.
+
+| Sheet | Shows |
+| --- | --- |
+| Load paths | Roof load direction and width, every member, each beam end's reaction and what carries it, anything unsupported |
+| Roof framing | Rafters, ridge, ledger, verandah and deck beams and their posts. Trusses are noted to the manufacturer's specification, and a roof with no rafters gets no sheet |
+| Wall framing and bracing | Studs, lintels, bracing panels (`d - 2400`), blockwork hatched, articulation joints (`AJ`), racking against capacity, masonry lintel schedule |
+| Footings | System from AS 2870 for the site class and bearing, edge and internal beams, pads, geotechnical values, standard notes |
+| Floor framing and slab | Slab on ground, Bondek extent and span, floor beams, columns and joists |
+
+- **Notes** go in clear space on the sheet, which keeps its paper size and scale. If they do not fit, they go on the next page.
+- **AS 2870 values are not invented.** Footing depths, reinforcement and mesh print in red as *enter from AS 2870* until entered in Review, because those figures are not reproduced here. Beams are drawn at 4 m until a spacing is entered.
+- **Articulation joints** apply to masonry construction except on Class A and S sites. The 6 m default is a working value that can be changed in Review; confirm it against AS 4773, which was not among the supplied standards. They are placed on plan only, not on the elevations.
+- **Blockwork** is checked as unreinforced. Core filling and retaining are for the engineer.
 
 ## Drawing
 
